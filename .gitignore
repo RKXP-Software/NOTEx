@@ -30,3 +30,6 @@ dist-ssr
 *.jks
 *.keystore
 keystore.properties
+
+# Instaladores gerados para distribuição
+distribuicao/

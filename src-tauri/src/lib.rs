@@ -548,6 +548,7 @@ pub fn run() {
             sync_app::sync_set_active,
             sync_app::drive_status,
             sync_app::drive_connect,
+            sync_app::drive_connect_cancel,
             sync_app::drive_disconnect,
             sync_app::drive_sync_now,
         ))

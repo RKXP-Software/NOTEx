@@ -22,6 +22,9 @@ const REVOKE_URL: &str = "https://oauth2.googleapis.com/revoke";
 const API: &str = "https://www.googleapis.com/drive/v3";
 const UPLOAD: &str = "https://www.googleapis.com/upload/drive/v3";
 
+/// Erro quando o usuário cancela a espera do login no NOTEx.
+pub const LOGIN_CANCELLED: &str = "Login cancelado.";
+
 /// Erro quando o acesso foi revogado (ou o login expirou): é preciso conectar de novo.
 pub const REVOKED: &str = "O acesso ao Google Drive foi revogado ou expirou. Conecte de novo no PC.";
 
@@ -105,7 +108,12 @@ fn token_request(form: &[(&str, &str)]) -> Result<TokenResponse, String> {
 }
 
 /// Login pelo navegador. `open` abre a URL no navegador padrão. Devolve o refresh token.
-pub fn authorize(client: &OAuthClient, open: impl Fn(&str) -> Result<(), String>) -> Result<String, String> {
+/// `cancelled` é consultado enquanto espera o navegador (botão Cancelar).
+pub fn authorize(
+    client: &OAuthClient,
+    open: impl Fn(&str) -> Result<(), String>,
+    cancelled: impl Fn() -> bool,
+) -> Result<String, String> {
     let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|e| format!("Não foi possível abrir a porta local: {e}"))?;
     let redirect = format!("http://127.0.0.1:{}", listener.local_addr().map_err(|e| e.to_string())?.port());
     let verifier = random_token(48);
@@ -125,6 +133,9 @@ pub fn authorize(client: &OAuthClient, open: impl Fn(&str) -> Result<(), String>
     let (code, returned_state) = loop {
         if Instant::now() > deadline {
             return Err("O login não foi concluído a tempo. Tente de novo.".into());
+        }
+        if cancelled() {
+            return Err(LOGIN_CANCELLED.into());
         }
         let mut stream = match listener.accept() {
             Ok((s, _)) => s,

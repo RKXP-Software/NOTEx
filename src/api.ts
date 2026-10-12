@@ -121,6 +121,8 @@ export const driveApi = {
   status: () => invoke<DriveStatus>('drive_status'),
   /** Abre o navegador para o login no Google (só no PC). Devolve o e-mail. */
   connect: () => invoke<string>('drive_connect'),
+  /** Cancela a espera do login (o navegador pode ser fechado). */
+  cancelConnect: () => invoke<void>('drive_connect_cancel'),
   disconnect: () => invoke<void>('drive_disconnect'),
   syncNow: () => invoke<void>('drive_sync_now')
 }

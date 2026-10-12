@@ -396,12 +396,18 @@ export class SyncUi {
             this.drive = await driveApi.status()
             this.render()
           } catch (e) {
-            toast(errorMessage(e), 'error')
+            const msg = errorMessage(e)
+            toast(msg, msg === 'Login cancelado.' ? 'info' : 'error')
           }
           this.connecting = false
           redraw()
         })()
       })
+      if (this.connecting) {
+        const cancel = el('button', { textContent: 'Cancelar' })
+        cancel.addEventListener('click', () => void driveApi.cancelConnect())
+        row.append(cancel)
+      }
       row.append(connect)
     }
     sec.append(row)

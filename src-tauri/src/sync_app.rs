@@ -448,6 +448,8 @@ pub struct DriveRuntime {
     status: Mutex<DriveStatus>,
     /// Conexão reaproveitada entre sincronizações (token de acesso e pasta NOTEx em cache).
     remote: Mutex<Option<DriveRemote<GoogleDrive>>>,
+    /// Pedido de cancelar o login em andamento.
+    cancel_login: AtomicBool,
 }
 
 impl DriveRuntime {
@@ -468,6 +470,7 @@ impl DriveRuntime {
             scheduled: Mutex::new(None),
             status: Mutex::new(status),
             remote: Mutex::new(None),
+            cancel_login: AtomicBool::new(false),
         }
     }
 
@@ -634,11 +637,14 @@ pub async fn drive_connect(app: AppHandle) -> CmdResult<String> {
     }
     let client = google::client().ok_or("Este build do NOTEx não tem o Google Drive configurado.")?;
     let opener_app = app.clone();
+    app.state::<AppState>().drive.cancel_login.store(false, Ordering::Relaxed);
     let (token, email) = tauri::async_runtime::spawn_blocking(move || {
         use tauri_plugin_opener::OpenerExt;
-        let token = google::authorize(&client, |url| {
-            opener_app.opener().open_url(url, None::<&str>).map_err(|e| format!("Não foi possível abrir o navegador: {e}"))
-        })?;
+        let token = google::authorize(
+            &client,
+            |url| opener_app.opener().open_url(url, None::<&str>).map_err(|e| format!("Não foi possível abrir o navegador: {e}")),
+            || opener_app.state::<AppState>().drive.cancel_login.load(Ordering::Relaxed),
+        )?;
         let email = GoogleDrive::new(client, token.clone()).user_email()?;
         Ok::<_, String>((token, email))
     })
@@ -647,6 +653,12 @@ pub async fn drive_connect(app: AppHandle) -> CmdResult<String> {
     adopt_drive(&app, token, Some(email.clone()));
     request_drive_sync(&app, Duration::from_millis(50));
     Ok(email)
+}
+
+/// Cancela a espera do login no navegador.
+#[tauri::command]
+pub fn drive_connect_cancel(state: State<AppState>) {
+    state.drive.cancel_login.store(true, Ordering::Relaxed);
 }
 
 /// Desconecta. No PC também revoga o acesso no Google (vale para o celular também).
