@@ -183,6 +183,10 @@ export class VisualEditor implements NoteEditor {
     // Cores vêm das variáveis CSS do tema.
   }
 
+  remeasure(): void {
+    // O ProseMirror usa o layout do navegador direto; nada a remedir.
+  }
+
   position(): string {
     const { from, to } = this.editor.state.selection
     return to > from ? `${this.editor.state.doc.textBetween(from, to, ' ').length} selecionados` : ''

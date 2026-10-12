@@ -17,6 +17,8 @@ export interface NoteEditor {
   setText(text: string): void
   focus(): void
   setDark(dark: boolean): void
+  /** Remede o layout (após mudar o tamanho da fonte, ex.: zoom). */
+  remeasure(): void
   /** Texto curto de posição para a barra de status (ex.: "Ln 3, Col 7"). */
   position(): string
   destroy(): void

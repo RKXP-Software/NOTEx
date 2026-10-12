@@ -35,8 +35,16 @@ const darkTheme: Extension = [
   )
 ]
 
+/** Tamanho atual da fonte das notas (variável CSS controlada pelo zoom). */
+function editorFontSize(): string {
+  return getComputedStyle(document.documentElement).getPropertyValue('--editor-font-size').trim() || '15px'
+}
+
+// Fonte num tema próprio: reconfigurar o tema faz o CodeMirror remedir as linhas (só mudar o CSS não).
+const fontTheme = (size: string): Extension => EditorView.theme({ '&': { fontSize: size } })
+
 const baseTheme = EditorView.theme({
-  '&': { height: '100%', fontSize: 'var(--editor-font-size)' },
+  '&': { height: '100%' },
   '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.6' },
   '.cm-content': { padding: '12px 0' },
   '&.cm-focused': { outline: 'none' }
@@ -47,6 +55,7 @@ export class TextEditor implements NoteEditor {
   readonly dom: HTMLElement
   readonly view: EditorView
   private readonly themeSlot = new Compartment()
+  private readonly fontSlot = new Compartment()
   private dark: boolean
   private silent = false
 
@@ -66,6 +75,7 @@ export class TextEditor implements NoteEditor {
       EditorView.lineWrapping,
       EditorState.tabSize.of(4),
       baseTheme,
+      this.fontSlot.of(fontTheme(editorFontSize())),
       this.themeSlot.of(this.dark ? darkTheme : lightTheme),
       EditorView.updateListener.of((u) => {
         if (u.docChanged && !this.silent) events.onChange()
@@ -101,6 +111,11 @@ export class TextEditor implements NoteEditor {
     if (dark === this.dark) return
     this.dark = dark
     this.view.dispatch({ effects: this.themeSlot.reconfigure(dark ? darkTheme : lightTheme) })
+  }
+
+  remeasure(): void {
+    // O CodeMirror guarda a altura das linhas; sem isso a numeração fica desalinhada após o zoom.
+    this.view.dispatch({ effects: this.fontSlot.reconfigure(fontTheme(editorFontSize())) })
   }
 
   position(): string {

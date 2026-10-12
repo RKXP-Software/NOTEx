@@ -838,6 +838,7 @@ export class App {
     document.documentElement.style.setProperty('--editor-font-size', `${(BASE_FONT_PX * this.zoom) / 100}px`)
     const label = document.getElementById('zoom-reset')
     if (label) label.textContent = `${this.zoom}%`
+    for (const d of this.docs.values()) d.editor.remeasure()
   }
 
   /** Próximo nível de zoom para cima (+1) ou para baixo (-1); 0 volta a 100%. */
