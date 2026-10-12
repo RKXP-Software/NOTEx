@@ -108,6 +108,20 @@ function modal(build: (box: HTMLElement, close: (v: unknown) => void) => void): 
   })
 }
 
+/**
+ * Painel modal com conteúdo livre (ex.: sincronização). `build` recebe a caixa e a função de
+ * fechar; devolve uma limpeza opcional (parar timers). Fecha com Esc, clique fora ou Voltar.
+ */
+export function panel(build: (box: HTMLElement, close: () => void) => (() => void) | void): Promise<void> {
+  let cleanup: (() => void) | void
+  return modal((box, close) => {
+    box.classList.add('panel')
+    cleanup = build(box, () => close(null))
+  }).then(() => {
+    cleanup?.()
+  })
+}
+
 function buttons(box: HTMLElement, items: { label: string; primary?: boolean; danger?: boolean; onClick: () => void }[]): void {
   const row = document.createElement('div')
   row.className = 'modal-buttons'

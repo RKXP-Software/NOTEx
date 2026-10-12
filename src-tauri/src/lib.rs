@@ -3,6 +3,8 @@
 
 mod meta;
 mod notebooks;
+mod sync;
+mod sync_app;
 mod textfile;
 
 use notebooks::{Config, Notebook, TreeEntry};
@@ -20,6 +22,21 @@ struct AppState {
     state_dir: PathBuf,
     /// Pasta padrão de fábrica para novos cadernos (Documentos\NOTEx no desktop).
     default_root: PathBuf,
+    /// Sincronização: lado celular (cliente).
+    client: sync_app::ClientRuntime,
+    /// Sincronização: lado PC (servidor) e contador de mudanças que os celulares escutam.
+    #[cfg(desktop)]
+    server: sync_app::ServerState,
+    #[cfg(desktop)]
+    changes: std::sync::Arc<sync::http::Changes>,
+}
+
+/// Arquivos mudaram por ação do usuário: no PC acorda os celulares; no celular agenda a sincronização.
+fn touched(app: &AppHandle) {
+    #[cfg(desktop)]
+    app.state::<AppState>().changes.bump();
+    #[cfg(mobile)]
+    sync_app::request_sync(app, std::time::Duration::from_millis(1500));
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -95,7 +112,7 @@ fn check_not_nested(cfg: &Config, path: &Path, except: Option<&str>) -> CmdResul
 
 /// Cria um caderno novo numa subpasta `name` de `parent` (ou da pasta padrão).
 #[tauri::command]
-fn create_notebook(state: State<AppState>, name: String, parent: Option<PathBuf>) -> CmdResult<NotebookInfo> {
+fn create_notebook(app: AppHandle, state: State<AppState>, name: String, parent: Option<PathBuf>) -> CmdResult<NotebookInfo> {
     let stem = notebooks::sanitize_name(&name);
     if stem.is_empty() {
         return Err("Nome de caderno inválido.".into());
@@ -118,6 +135,7 @@ fn create_notebook(state: State<AppState>, name: String, parent: Option<PathBuf>
         },
         true,
     )
+    .inspect(|_| touched(&app))
 }
 
 /// Registra uma pasta existente (escolhida pelo usuário) como caderno.
@@ -196,12 +214,14 @@ fn set_root(state: State<AppState>, path: Option<PathBuf>) -> CmdResult<RootSett
 
 /// Define (ou remove, com None) o ícone de uma pasta ou do próprio caderno.
 #[tauri::command]
-fn set_icon(state: State<AppState>, path: PathBuf, icon: Option<String>) -> CmdResult<()> {
+fn set_icon(app: AppHandle, state: State<AppState>, path: PathBuf, icon: Option<String>) -> CmdResult<()> {
     let root = state.with_config(|c| Ok(c.check_in_notebook(&path)?.path.clone()), false)?;
     if !path.is_dir() {
         return Err("Só pastas e cadernos têm ícone.".into());
     }
-    meta::set_icon(&root, &path, icon.as_deref())
+    meta::set_icon(&root, &path, icon.as_deref())?;
+    touched(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -246,19 +266,23 @@ fn list_tree(state: State<AppState>, id: String) -> CmdResult<Vec<TreeEntry>> {
 // ---- Notas e pastas ----
 
 #[tauri::command]
-fn create_note(state: State<AppState>, dir: PathBuf, title: String, ext: String) -> CmdResult<PathBuf> {
+fn create_note(app: AppHandle, state: State<AppState>, dir: PathBuf, title: String, ext: String) -> CmdResult<PathBuf> {
     state.with_config(|c| c.check_in_notebook(&dir).map(|_| ()), false)?;
-    notebooks::create_note(&dir, &title, &ext)
+    let path = notebooks::create_note(&dir, &title, &ext)?;
+    touched(&app);
+    Ok(path)
 }
 
 #[tauri::command]
-fn create_folder(state: State<AppState>, parent: PathBuf, name: String) -> CmdResult<PathBuf> {
+fn create_folder(app: AppHandle, state: State<AppState>, parent: PathBuf, name: String) -> CmdResult<PathBuf> {
     state.with_config(|c| c.check_in_notebook(&parent).map(|_| ()), false)?;
-    notebooks::create_folder(&parent, &name)
+    let path = notebooks::create_folder(&parent, &name)?;
+    touched(&app);
+    Ok(path)
 }
 
 #[tauri::command]
-fn rename_entry(state: State<AppState>, path: PathBuf, name: String) -> CmdResult<PathBuf> {
+fn rename_entry(app: AppHandle, state: State<AppState>, path: PathBuf, name: String) -> CmdResult<PathBuf> {
     let root = state.with_config(
         |c| {
             let nb = c.check_in_notebook(&path)?;
@@ -272,11 +296,12 @@ fn rename_entry(state: State<AppState>, path: PathBuf, name: String) -> CmdResul
     let target = notebooks::rename_entry(&path, &name)?;
     // Ícones não são essenciais: falha ao atualizá-los não desfaz a renomeação.
     let _ = meta::transfer(&root, &path, Some(&root), &target);
+    touched(&app);
     Ok(target)
 }
 
 #[tauri::command]
-fn move_entry(state: State<AppState>, path: PathBuf, dest_dir: PathBuf) -> CmdResult<PathBuf> {
+fn move_entry(app: AppHandle, state: State<AppState>, path: PathBuf, dest_dir: PathBuf) -> CmdResult<PathBuf> {
     let (src_root, dst_root) = state.with_config(
         |c| {
             let nb = c.check_in_notebook(&path)?;
@@ -292,21 +317,25 @@ fn move_entry(state: State<AppState>, path: PathBuf, dest_dir: PathBuf) -> CmdRe
     }
     let target = notebooks::move_entry(&path, &dest_dir)?;
     let _ = meta::transfer(&src_root, &path, Some(&dst_root), &target);
+    touched(&app);
     Ok(target)
 }
 
 #[tauri::command]
-fn trash_entry(state: State<AppState>, path: PathBuf) -> CmdResult<PathBuf> {
+fn trash_entry(app: AppHandle, state: State<AppState>, path: PathBuf) -> CmdResult<PathBuf> {
     let root = state.with_config(|c| Ok(c.check_in_notebook(&path)?.path.clone()), false)?;
     let target = notebooks::trash_entry(&root, &path)?;
     let _ = meta::transfer(&root, &path, None, &target);
+    touched(&app);
     Ok(target)
 }
 
 #[tauri::command]
-fn remove_if_empty(state: State<AppState>, path: PathBuf) -> CmdResult<bool> {
+fn remove_if_empty(app: AppHandle, state: State<AppState>, path: PathBuf) -> CmdResult<bool> {
     state.with_config(|c| c.check_in_notebook(&path).map(|_| ()), false)?;
-    notebooks::remove_if_empty(&path)
+    let removed = notebooks::remove_if_empty(&path)?;
+    touched(&app);
+    Ok(removed)
 }
 
 #[derive(Serialize)]
@@ -329,16 +358,34 @@ struct WriteResult {
     mtime: Option<u64>,
 }
 
+/// Erro de `write_note` quando o arquivo mudou no disco desde a última leitura (sincronização ou
+/// outro programa). A interface guarda o texto local numa cópia de conflito.
+const CONFLICT: &str = "CONFLITO";
+
 /// Grava a nota no formato dado. Se o texto tiver caracteres que a Windows-1252 não representa,
 /// grava em UTF-8 (o salvamento é automático, não dá para perguntar) e devolve o novo formato.
+/// `expected_mtime`: data de modificação que a interface conhece; se o arquivo mudou, recusa.
 #[tauri::command]
-fn write_note(state: State<AppState>, path: PathBuf, text: String, format: TextFormat) -> CmdResult<WriteResult> {
+fn write_note(
+    app: AppHandle,
+    state: State<AppState>,
+    path: PathBuf,
+    text: String,
+    format: TextFormat,
+    expected_mtime: Option<u64>,
+) -> CmdResult<WriteResult> {
     state.with_config(|c| c.check_allowed(&path), false)?;
+    if let (Some(expected), Some(current)) = (expected_mtime, mtime_ms(&path)) {
+        if expected != current {
+            return Err(CONFLICT.into());
+        }
+    }
     let mut format = format;
     if textfile::find_unencodable(&text, format.encoding).is_some() {
         format = TextFormat { encoding: Encoding::Utf8, bom: false, ..format };
     }
     textfile::write_file(&path, &text, &format)?;
+    touched(&app);
     Ok(WriteResult { format, mtime: mtime_ms(&path) })
 }
 
@@ -402,7 +449,17 @@ fn init_state(app: &AppHandle) -> Result<AppState, Box<dyn std::error::Error>> {
 
     let config_file = config_dir.join("config.json");
     let mut cfg: Config = fs::read(&config_file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-    let state = AppState { config: Mutex::new(Config::default()), config_file, state_dir: config_dir, default_root: root };
+    let state = AppState {
+        config: Mutex::new(Config::default()),
+        config_file,
+        client: sync_app::ClientRuntime::load(config_dir.join("sync-client.json")),
+        #[cfg(desktop)]
+        server: sync_app::ServerState::load(config_dir.join("sync-server.json")),
+        #[cfg(desktop)]
+        changes: Default::default(),
+        state_dir: config_dir,
+        default_root: root,
+    };
     // Pasta padrão escolhida que sumiu (pendrive, disco removido): volta para a de fábrica.
     if cfg.root.as_ref().is_some_and(|r| !r.is_dir()) {
         cfg.root = None;
@@ -415,17 +472,45 @@ fn init_state(app: &AppHandle) -> Result<AppState, Box<dyn std::error::Error>> {
     Ok(state)
 }
 
+// Comandos de servidor de sincronização só existem no PC.
+#[cfg(desktop)]
+macro_rules! handlers {
+    ($($cmd:path),* $(,)?) => {
+        tauri::generate_handler![
+            $($cmd,)*
+            sync_app::sync_server_status,
+            sync_app::sync_pair_start,
+            sync_app::sync_pair_cancel,
+            sync_app::sync_remove_device,
+        ]
+    };
+}
+#[cfg(mobile)]
+macro_rules! handlers {
+    ($($cmd:path),* $(,)?) => {
+        tauri::generate_handler![$($cmd),*]
+    };
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_dialog::init());
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
+    builder
         .setup(|app| {
             let state = init_state(app.handle())?;
             app.manage(state);
+            // PC: servidor de sincronização sempre ligado. Celular: rotina que sincroniza com o app aberto.
+            #[cfg(desktop)]
+            sync_app::start_server(app.handle().clone());
+            #[cfg(mobile)]
+            sync_app::start_client_loop(app.handle().clone());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(handlers!(
             get_notebooks,
             create_notebook,
             add_notebook,
@@ -449,7 +534,12 @@ pub fn run() {
             notebooks_root,
             load_state,
             save_state,
-        ])
+            sync_app::sync_client_status,
+            sync_app::sync_pair,
+            sync_app::sync_unpair,
+            sync_app::sync_now,
+            sync_app::sync_set_active,
+        ))
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o NOTEx");
 }

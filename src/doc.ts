@@ -1,6 +1,6 @@
 // Documento aberto: arquivo em disco + editor + salvamento automático.
 
-import { api, type TextFormat } from './api'
+import { api, CONFLICT, type TextFormat } from './api'
 import { docKind, type DocKind } from './naming'
 import { TextEditor } from './editors/text-editor'
 import { VisualEditor } from './editors/visual-editor'
@@ -18,6 +18,11 @@ export interface DocHooks {
   selection(doc: Doc): void
   /** Depois de cada gravação bem-sucedida (renomeação automática de notas rápidas). */
   saved(doc: Doc): void | Promise<void>
+  /**
+   * O arquivo mudou no disco enquanto havia edição local não salva (outro aparelho, outro
+   * programa). `text` é a versão local, que não pode se perder.
+   */
+  conflict(doc: Doc, text: string): Promise<void>
 }
 
 export class Doc {
@@ -129,14 +134,21 @@ export class Doc {
     this.setStatus('saving')
     this.pending = (async () => {
       try {
-        const r = await api.writeNote(this.path, text, this.format)
+        const r = await api.writeNote(this.path, text, this.format, this.mtime)
         this.format = r.format
         this.mtime = r.mtime
         this.savedText = text
         this.setStatus(this.changeSeq === seq ? 'saved' : 'dirty')
         await this.hooks.saved(this)
       } catch (err) {
-        this.setStatus('error', typeof err === 'string' ? err : 'Falha ao salvar.')
+        if (err === CONFLICT) {
+          // Recarrega a versão do disco; a local vai para uma cópia (feita pelo app).
+          this.status = 'saved'
+          await this.hooks.conflict(this, text)
+          await this.forceReload()
+        } else {
+          this.setStatus('error', typeof err === 'string' ? err : 'Falha ao salvar.')
+        }
       } finally {
         this.pending = null
       }
@@ -159,6 +171,21 @@ export class Doc {
     if (content.text !== this.editor.getText()) this.editor.setText(content.text)
     this.savedText = this.editor.getText()
     return 'reloaded'
+  }
+
+  /** Recarrega do disco descartando o que está no editor (após guardar a versão local numa cópia). */
+  async forceReload(): Promise<void> {
+    const content = await api.readNote(this.path)
+    this.format = content.format
+    this.mtime = content.mtime
+    this.editor.setText(content.text)
+    this.savedText = this.editor.getText()
+    this.setStatus('saved')
+  }
+
+  /** Atualiza a data de modificação conhecida (após renomear/mover, que podem alterá-la). */
+  async refreshMtime(): Promise<void> {
+    this.mtime = await api.noteMtime(this.path).catch(() => this.mtime)
   }
 
   text(): string {

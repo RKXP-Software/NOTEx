@@ -3,7 +3,8 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
-import { api, errorMessage, QUICK_NOTEBOOK_ID, type Notebook, type TreeEntry } from './api'
+import { listen } from '@tauri-apps/api/event'
+import { api, errorMessage, EVENT_FILES, QUICK_NOTEBOOK_ID, type FilesChanged, type Notebook, type TreeEntry } from './api'
 import { Doc } from './doc'
 import {
   addTab,
@@ -21,7 +22,7 @@ import {
   type LayoutNode,
   type Side
 } from './layout'
-import { baseName, countWords, docKind, firstLineDone, isWithin, quickNoteTitle, rebase, samePath, stem, titleFromText, txtToMarkdown } from './naming'
+import { baseName, countWords, dirName, docKind, firstLineDone, isWithin, quickNoteTitle, rebase, samePath, stem, titleFromText, txtToMarkdown } from './naming'
 import { Theme, parseThemePref, type ThemePref } from './theme'
 import { hasDesktopFs, isMobile } from './platform'
 import { choose, confirm, pickIcon, prompt, showMenu, toast, type MenuEntry } from './ui/dialogs'
@@ -29,6 +30,7 @@ import { Sidebar } from './ui/sidebar'
 import { editLink, Toolbar } from './ui/toolbar'
 import { Workspace } from './ui/workspace'
 import { popLayer, pushLayer } from './ui/back'
+import { SyncUi } from './ui/sync-panel'
 import { VisualEditor } from './editors/visual-editor'
 
 const SESSION_KEY = 'session'
@@ -193,6 +195,35 @@ export class App {
       if (document.visibilityState === 'hidden') void this.flushAll()
     })
     if (isMobile) this.bindDrawer()
+
+    // Sincronização: indicador/painel e notas alteradas por outro aparelho.
+    await new SyncUi(document.getElementById('st-sync')!).init()
+    await listen<FilesChanged>(EVENT_FILES, (e) => void this.onFilesChanged(e.payload))
+  }
+
+  /** A sincronização gravou ou apagou arquivos: atualiza abas abertas e a barra lateral. */
+  private async onFilesChanged(ev: FilesChanged): Promise<void> {
+    for (const path of ev.removed) {
+      const doc = this.findDoc(path)
+      // Com edição não salva, mantém aberta: ao salvar, a nota volta a existir.
+      if (!doc || doc.dirty) continue
+      this.docs.delete(doc.path)
+      this.layout = removeTab(this.layout, doc.path)
+      doc.destroy()
+    }
+    if (!findGroup(this.layout, this.focused)) this.focused = allGroups(this.layout)[0]!.id
+    for (const path of ev.changed) {
+      await this.findDoc(path)?.reloadIfChanged().catch(() => undefined)
+    }
+    await this.reloadNotebooks()
+    this.render()
+  }
+
+  /** Rótulo das cópias de conflito: "PC 2026-10-12 06h20" / "celular …". */
+  private conflictLabel(): string {
+    const d = new Date()
+    const p = (n: number): string => String(n).padStart(2, '0')
+    return `${isMobile ? 'celular' : 'PC'} ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}h${p(d.getMinutes())}`
   }
 
   /** Gaveta no celular: fundo escurecido fecha; o botão Voltar do Android também. */
@@ -333,6 +364,17 @@ export class App {
     },
     saved: async (doc: Doc) => {
       if (doc.autoName && firstLineDone(doc.text())) await this.applyAutoName(doc)
+    },
+    conflict: async (doc: Doc, text: string) => {
+      // A nota mudou no disco (outro aparelho) com edição local pendente: a local vira uma cópia.
+      try {
+        const copy = await api.createNote(dirName(doc.path), `${stem(doc.path)} (conflito ${this.conflictLabel()})`, doc.kind)
+        await api.writeNote(copy, text, doc.format)
+        await this.refreshTrees()
+        toast(`"${stem(doc.path)}" mudou em outro aparelho. Sua versão foi salva como "${stem(copy)}".`)
+      } catch (e) {
+        toast(`Conflito ao salvar "${stem(doc.path)}": ${errorMessage(e)}`, 'error')
+      }
     }
   }
 
@@ -498,6 +540,7 @@ export class App {
       this.docs.set(next, doc)
       this.layout = renameTab(this.layout, old, next)
       doc.refreshKind()
+      void doc.refreshMtime()
     }
     this.sidebar.expanded.forEach((k) => {
       if (!k.startsWith('nb:') && isWithin(from, k)) {

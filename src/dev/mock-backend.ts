@@ -12,6 +12,7 @@ const dirs = new Set<string>()
 const state = new Map<string, string>()
 const notebooks: { id: string; name: string; path: string }[] = [{ id: 'rapidas', name: 'Rápidas', path: `${ROOT}${SEP}Rápidas` }]
 const icons = new Map<string, string>()
+let pairedMock = false
 
 const parent = (p: string): string => p.slice(0, p.lastIndexOf(SEP))
 const base = (p: string): string => p.slice(p.lastIndexOf(SEP) + 1)
@@ -178,6 +179,26 @@ function handle(cmd: string, a: Args): unknown {
       return null
     case 'plugin:dialog|open':
       return null
+    case 'sync_server_status':
+      return {
+        running: true,
+        error: null,
+        name: 'PC-DE-TESTE',
+        port: 47800,
+        ips: ['192.168.0.10'],
+        devices: pairedMock ? [{ id: 'c1', name: 'moto g75 5G', lastSeen: Date.now() - 5000 }] : [],
+        pairing: false
+      }
+    case 'sync_pair_start':
+      // Simula o celular lendo o código 4 s depois.
+      setTimeout(() => (pairedMock = true), 4000)
+      return {
+        link: 'notex1:exemplo',
+        ips: ['192.168.0.10'],
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21"><rect width="21" height="21" fill="#fff"/><path d="M1 1h7v7H1zM13 1h7v7h-7zM1 13h7v7H1z" fill="#000"/></svg>'
+      }
+    case 'sync_client_status':
+      return { state: 'unpaired', serverName: null, lastSync: null, message: '', conflicts: 0 }
     default:
       // Plugins de janela/eventos/opener: sem efeito no navegador.
       return null

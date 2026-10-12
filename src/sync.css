@@ -1,0 +1,137 @@
+/* Sincronização: indicador na barra de status e painel. */
+
+.sync-indicator {
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.sync-indicator:hover,
+.sync-indicator:focus-visible {
+  background: var(--btn-hover);
+  color: var(--fg);
+  outline: none;
+}
+.sync-indicator.ok {
+  color: var(--ok);
+}
+.sync-indicator.warn {
+  color: var(--warn);
+}
+.sync-indicator.off {
+  color: var(--accent);
+}
+
+:root {
+  --ok: #1a7f37;
+}
+[data-theme='dark'] {
+  --ok: #3fb950;
+}
+
+.modal.panel {
+  width: min(520px, calc(100vw - 24px));
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+}
+.modal-overlay:has(.panel) {
+  padding-top: 5vh;
+}
+.sync-body p {
+  white-space: normal;
+  color: var(--fg);
+}
+.sync-body p.muted,
+.sync-body small {
+  color: var(--fg-muted);
+}
+.sync-body h3 {
+  margin: 16px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sync-ok {
+  color: var(--ok) !important;
+  font-weight: 600;
+}
+.sync-error {
+  color: var(--danger) !important;
+  font-weight: 600;
+}
+.steps {
+  margin: 8px 0;
+  padding-left: 20px;
+  line-height: 1.6;
+}
+
+.qr {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0 4px;
+}
+/* O QR fica sempre preto no branco (a câmera lê melhor), mesmo no tema escuro. */
+.qr svg {
+  width: 240px;
+  height: 240px;
+  background: #fff;
+  border-radius: 8px;
+}
+.link-btn {
+  display: block;
+  margin: 0 auto 8px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.device {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+.device .dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--fg-muted);
+}
+.device .dot.on {
+  background: var(--ok);
+}
+.device-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.device button {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  cursor: pointer;
+}
+.modal-buttons button.danger:not(.primary) {
+  color: var(--danger);
+}
+
+/* Celular: indicador visível e com toque confortável; contagem de palavras sai para caber. */
+html.mobile #st-words {
+  display: none;
+}
+html.mobile .sync-indicator {
+  padding: 6px 8px;
+  font-size: 14px;
+}

@@ -61,13 +61,66 @@ export const api = {
   trashEntry: (path: string) => invoke<string>('trash_entry', { path }),
   removeIfEmpty: (path: string) => invoke<boolean>('remove_if_empty', { path }),
   readNote: (path: string) => invoke<NoteContent>('read_note', { path }),
-  writeNote: (path: string, text: string, format: TextFormat) =>
-    invoke<WriteResult>('write_note', { path, text, format }),
+  /** `expectedMtime`: se o arquivo mudou no disco desde então, falha com CONFLICT. */
+  writeNote: (path: string, text: string, format: TextFormat, expectedMtime: number | null = null) =>
+    invoke<WriteResult>('write_note', { path, text, format, expectedMtime }),
   noteMtime: (path: string) => invoke<number | null>('note_mtime', { path }),
   openExternal: (path: string) => invoke<void>('open_external', { path }),
   notebooksRoot: () => invoke<string>('notebooks_root'),
   loadState: (key: string) => invoke<string | null>('load_state', { key }),
   saveState: (key: string, json: string) => invoke<void>('save_state', { key, json })
+}
+
+/** Erro de writeNote: o arquivo mudou no disco (sincronização ou outro programa). */
+export const CONFLICT = 'CONFLITO'
+
+// ---- Sincronização ----
+
+export interface ClientStatus {
+  state: 'unpaired' | 'idle' | 'syncing' | 'offline' | 'error'
+  serverName: string | null
+  lastSync: number | null
+  message: string
+  conflicts: number
+}
+
+export interface ServerStatus {
+  running: boolean
+  error: string | null
+  name: string
+  port: number
+  ips: string[]
+  devices: { id: string; name: string; lastSeen: number | null }[]
+  pairing: boolean
+}
+
+export interface PairCode {
+  link: string
+  svg: string
+  ips: string[]
+}
+
+export interface FilesChanged {
+  changed: string[]
+  removed: string[]
+}
+
+export const EVENT_FILES = 'notex://files-changed'
+export const EVENT_SYNC_STATUS = 'notex://sync-status'
+
+export const syncApi = {
+  // Celular
+  clientStatus: () => invoke<ClientStatus>('sync_client_status'),
+  pair: (link: string, deviceName: string) => invoke<string>('sync_pair', { link, deviceName }),
+  unpair: () => invoke<void>('sync_unpair'),
+  syncNow: () => invoke<void>('sync_now'),
+  setActive: (active: boolean) =>
+    invoke<void>('sync_set_active', { active, tzOffsetMin: -new Date().getTimezoneOffset() }),
+  // PC
+  serverStatus: () => invoke<ServerStatus>('sync_server_status'),
+  pairStart: () => invoke<PairCode>('sync_pair_start'),
+  pairCancel: () => invoke<void>('sync_pair_cancel'),
+  removeDevice: (id: string) => invoke<void>('sync_remove_device', { id })
 }
 
 /** Mensagem de erro legível (os comandos devolvem strings em português). */
