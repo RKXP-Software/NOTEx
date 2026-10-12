@@ -1,7 +1,7 @@
 [package]
 name = "notex"
 version = "0.1.0"
-description = "Bloco de notas leve com abas, cadernos e sincronização"
+description = "Bloco de notas leve com abas, cadernos e sincronizaÃ§Ã£o"
 authors = ["RKXP Software"]
 edition = "2024"
 
@@ -14,12 +14,16 @@ edition = "2024"
 name = "notex_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[dev-dependencies]
+tempfile = "3"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

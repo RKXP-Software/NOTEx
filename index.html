@@ -1,43 +1,29 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri App</title>
-    <script type="module" src="/src/main.ts" defer></script>
+    <title>NOTEx</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts"></script>
   </head>
-
   <body>
-    <main class="container">
-      <h1>Welcome to Tauri</h1>
-
-      <div class="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/src/assets/vite.svg" class="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img
-            src="/src/assets/tauri.svg"
-            class="logo tauri"
-            alt="Tauri logo"
-          />
-        </a>
-        <a href="https://www.typescriptlang.org/docs" target="_blank">
-          <img
-            src="/src/assets/typescript.svg"
-            class="logo typescript"
-            alt="typescript logo"
-          />
-        </a>
+    <div id="app">
+      <header id="toolbar" class="toolbar" role="toolbar" aria-label="Barra de ferramentas"></header>
+      <div id="body">
+        <aside id="sidebar" aria-label="Cadernos"></aside>
+        <div id="sidebar-resizer" class="divider divider-row" aria-hidden="true"></div>
+        <main id="workspace"></main>
       </div>
-      <p>Click on the Tauri logo to learn more about the framework</p>
-
-      <form class="row" id="greet-form">
-        <input id="greet-input" placeholder="Enter a name..." />
-        <button type="submit">Greet</button>
-      </form>
-      <p id="greet-msg"></p>
-    </main>
+      <footer class="statusbar">
+        <span id="st-path"></span>
+        <span class="spacer"></span>
+        <span id="st-status"></span>
+        <span id="st-words"></span>
+        <span id="st-pos"></span>
+        <span id="st-kind"></span>
+        <span id="st-enc"></span>
+      </footer>
+    </div>
   </body>
 </html>

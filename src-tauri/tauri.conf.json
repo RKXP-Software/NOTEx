@@ -10,21 +10,32 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [
       {
         "title": "NOTEx",
         "width": 1200,
-        "height": 800
+        "height": 800,
+        "minWidth": 480,
+        "minHeight": 320,
+        "dragDropEnabled": false
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'"
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "publisher": "RKXP Software",
+    "shortDescription": "Bloco de notas leve com abas, cadernos e sincronização",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["PortugueseBR"]
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
