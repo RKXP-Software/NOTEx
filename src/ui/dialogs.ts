@@ -1,5 +1,7 @@
 // Diálogos leves (pergunta de texto, confirmação), menu de contexto e avisos rápidos.
 
+import { popLayer, pushLayer } from './back'
+
 export interface MenuItem {
   label: string
   action?: () => void
@@ -11,9 +13,12 @@ export type MenuEntry = MenuItem | 'sep'
 
 let openMenu: HTMLElement | null = null
 
-export function closeMenu(): void {
-  openMenu?.remove()
+/** Fecha o menu aberto. `fromBack`: fechado pelo botão Voltar (o histórico já voltou). */
+export function closeMenu(fromBack = false): void {
+  if (!openMenu) return
+  openMenu.remove()
   openMenu = null
+  if (!fromBack) popLayer('menu')
 }
 
 /** Mostra um menu de contexto na posição do evento (ajustado para caber na janela). */
@@ -44,6 +49,7 @@ export function showMenu(x: number, y: number, entries: MenuEntry[]): void {
   menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - r.width - 4))}px`
   menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - r.height - 4))}px`
   openMenu = menu
+  pushLayer('menu', () => closeMenu(true))
   ;(menu.querySelector('button:not(:disabled)') as HTMLButtonElement | null)?.focus()
 }
 
@@ -65,7 +71,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault()
   }
 })
-window.addEventListener('blur', closeMenu)
+window.addEventListener('blur', () => closeMenu())
 
 function modal(build: (box: HTMLElement, close: (v: unknown) => void) => void): Promise<unknown> {
   return new Promise((resolve) => {
@@ -77,11 +83,16 @@ function modal(build: (box: HTMLElement, close: (v: unknown) => void) => void): 
     box.setAttribute('role', 'dialog')
     box.setAttribute('aria-modal', 'true')
     overlay.appendChild(box)
-    const close = (v: unknown): void => {
+    let closed = false
+    const close = (v: unknown, fromBack = false): void => {
+      if (closed) return
+      closed = true
       overlay.remove()
+      if (!fromBack) popLayer('modal')
       prevFocus?.focus()
       resolve(v)
     }
+    pushLayer('modal', () => close(null, true))
     overlay.addEventListener('mousedown', (e) => {
       if (e.target === overlay) close(null)
     })

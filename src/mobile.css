@@ -1,0 +1,142 @@
+/* Celular (html.mobile): um painel só, gaveta lateral, alvos de toque maiores. */
+
+html.mobile body {
+  font-size: 14px;
+  /* Sem "puxar para atualizar" nem rolagem da página inteira. */
+  overscroll-behavior: none;
+}
+
+/* Barra de ferramentas: botões maiores, rolagem horizontal pelo toque. */
+html.mobile .toolbar {
+  gap: 4px;
+  padding: 6px;
+  padding-top: max(6px, env(safe-area-inset-top));
+}
+html.mobile .toolbar button {
+  min-width: 38px;
+  height: 38px;
+  font-size: 15px;
+}
+html.mobile .toolbar .spacer {
+  display: none;
+}
+
+/* Gaveta lateral sobre o conteúdo. */
+html.mobile #sidebar {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(86vw, 340px);
+  padding-top: env(safe-area-inset-top);
+  box-shadow: var(--shadow);
+  transform: translateX(-105%);
+  transition: transform 0.18s ease-out;
+}
+html.mobile #app.drawer-open #sidebar {
+  transform: none;
+}
+/* Fechada, a gaveta só fica fora da tela (não some do layout com display:none). */
+html.mobile #app.no-sidebar #sidebar {
+  display: flex;
+}
+html.mobile #sidebar-resizer {
+  display: none;
+}
+#drawer-backdrop {
+  display: none;
+}
+html.mobile #app.drawer-open #drawer-backdrop {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: #000a;
+}
+
+html.mobile .sidebar-head {
+  padding: 12px 10px 8px 16px;
+  font-size: 12px;
+}
+html.mobile .icon-btn {
+  width: 36px;
+  height: 36px;
+  font-size: 20px;
+}
+html.mobile .node {
+  height: 42px;
+  font-size: 15px;
+}
+html.mobile .twisty {
+  width: 18px;
+  font-size: 12px;
+}
+html.mobile .node-icon {
+  width: 24px;
+  font-size: 15px;
+}
+
+/* Abas: mais altas, × sempre visível. */
+html.mobile .tabbar {
+  height: 42px;
+  scrollbar-width: none;
+}
+html.mobile .tabbar::-webkit-scrollbar {
+  display: none;
+}
+html.mobile .tab {
+  max-width: 60vw;
+  padding-left: 14px;
+}
+html.mobile .tab-close {
+  width: 32px;
+  height: 32px;
+  font-size: 20px;
+  opacity: 0.7;
+}
+html.mobile .group {
+  min-width: 0;
+}
+
+/* Editor visual com margens de celular. */
+html.mobile .visual-editor .prose {
+  padding: 16px 16px 50vh;
+}
+
+/* Barra de status: só status, palavras e zoom. */
+html.mobile .statusbar {
+  gap: 10px;
+  padding: 4px 10px;
+  padding-bottom: max(4px, env(safe-area-inset-bottom));
+}
+html.mobile #st-path,
+html.mobile #st-pos,
+html.mobile #st-kind,
+html.mobile #st-enc {
+  display: none;
+}
+html.mobile .statusbar .zoom button {
+  min-width: 34px;
+  height: 28px;
+  font-size: 15px;
+}
+
+/* Menus e diálogos para toque. */
+html.mobile .menu-item {
+  padding: 12px 14px;
+  font-size: 15px;
+}
+html.mobile .menu-item kbd {
+  display: none;
+}
+html.mobile .modal-overlay {
+  padding-top: 10vh;
+}
+html.mobile .modal-buttons button {
+  padding: 10px 16px;
+}
+html.mobile .modal input {
+  font-size: 16px;
+  padding: 10px 12px;
+}

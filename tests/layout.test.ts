@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   addTab,
   allGroups,
+  flatten,
   groupOfTab,
   newGroup,
   normalize,
@@ -117,6 +118,21 @@ describe('divisões', () => {
     l = splitWithTab(l, 'b', 'g1', 'right', 'g2')
     l = resize(l, [], [0.3, 0.7])
     expect((l as Split).sizes).toEqual([0.3, 0.7])
+  })
+})
+
+describe('flatten (celular)', () => {
+  it('junta a grade num grupo, mantendo o foco', () => {
+    let l: LayoutNode = newGroup('g1', ['a', 'b', 'c'])
+    l = splitWithTab(l, 'b', 'g1', 'right', 'g2')
+    l = splitWithTab(l, 'c', 'g2', 'bottom', 'g3')
+    const f = flatten(l, 'g3')
+    expect(f).toEqual({ type: 'group', id: 'g3', tabs: ['a', 'b', 'c'], active: 'c' })
+  })
+
+  it('grupo único fica igual', () => {
+    const g = { ...newGroup('g1', ['a', 'b']), active: 'b' }
+    expect(flatten(g, 'g1')).toEqual(g)
   })
 })
 

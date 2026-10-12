@@ -12,7 +12,8 @@
     "tauri": "tauri",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "icon": "node scripts/gerar-icone.mjs"
+    "icon": "node scripts/gerar-icone.mjs",
+    "apk": "tauri android build --apk --target aarch64 --target armv7"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

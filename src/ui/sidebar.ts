@@ -36,8 +36,10 @@ export class Sidebar {
   private activePath: string | null = null
   private readonly list: HTMLElement
 
+  /** desktop: mostra ações que dependem do disco do PC (escolher pastas, Explorer). */
   constructor(
     root: HTMLElement,
+    private readonly desktop: boolean,
     private readonly actions: SidebarActions
   ) {
     root.replaceChildren()
@@ -53,9 +55,13 @@ export class Sidebar {
       const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
       showMenu(r.left, r.bottom + 2, [
         { label: 'Novo caderno…', action: () => actions.newNotebook() },
-        { label: 'Adicionar pasta existente…', action: () => actions.addExistingFolder() },
-        'sep',
-        { label: 'Pasta padrão dos cadernos…', action: () => actions.chooseRoot() }
+        ...(desktop
+          ? ([
+              { label: 'Adicionar pasta existente…', action: () => actions.addExistingFolder() },
+              'sep',
+              { label: 'Pasta padrão dos cadernos…', action: () => actions.chooseRoot() }
+            ] as MenuEntry[])
+          : [])
       ])
     })
     head.appendChild(add)
@@ -63,6 +69,11 @@ export class Sidebar {
     this.list.className = 'tree'
     this.list.setAttribute('role', 'tree')
     root.append(head, this.list)
+  }
+
+  /** Itens de menu só para desktop. */
+  private desk(items: MenuEntry[]): MenuEntry[] {
+    return this.desktop ? items : []
   }
 
   setData(notebooks: Notebook[], trees: Map<string, TreeEntry[]>): void {
@@ -151,8 +162,10 @@ export class Sidebar {
       'sep',
       { label: 'Renomear caderno…', action: () => this.actions.renameNotebook(nb) },
       { label: 'Escolher ícone…', action: () => this.actions.chooseIcon(nb.path, nb.icon, true) },
-      { label: 'Mover caderno para outra pasta…', action: () => this.actions.moveNotebook(nb) },
-      { label: 'Abrir pasta no Explorer', action: () => this.actions.reveal(nb.path) },
+      ...this.desk([
+        { label: 'Mover caderno para outra pasta…', action: () => this.actions.moveNotebook(nb) },
+        { label: 'Abrir pasta no Explorer', action: () => this.actions.reveal(nb.path) }
+      ]),
       { label: 'Remover da lista', disabled: quick, action: () => this.actions.removeNotebook(nb) }
     ]
   }
@@ -161,20 +174,20 @@ export class Sidebar {
     if (!e.isDir) {
       const row = this.row({ label: e.name, depth, icon: e.name.toLowerCase().endsWith('.txt') ? '≡' : '¶', cls: 'file', title: e.path })
       row.dataset.path = e.path
-      row.draggable = true
+      row.draggable = this.desktop
       row.addEventListener('click', () => this.actions.open(e.path))
       row.addEventListener('contextmenu', (ev) => {
         ev.preventDefault()
         showMenu(ev.clientX, ev.clientY, [
           { label: 'Abrir', action: () => this.actions.open(e.path) },
-          { label: 'Abrir ao lado', action: () => this.actions.open(e.path, { side: true }) },
+          ...this.desk([{ label: 'Abrir ao lado', action: () => this.actions.open(e.path, { side: true }) }]),
           'sep',
           { label: 'Renomear…', shortcut: 'F2', action: () => this.actions.rename(e.path) },
           {
             label: e.name.toLowerCase().endsWith('.txt') ? 'Converter para .md' : 'Converter para .txt',
             action: () => this.actions.convert(e.path)
           },
-          { label: 'Mostrar no Explorer', action: () => this.actions.reveal(e.path) },
+          ...this.desk([{ label: 'Mostrar no Explorer', action: () => this.actions.reveal(e.path) }]),
           { label: 'Apagar', danger: true, action: () => this.actions.trash(e.path, false) }
         ])
       })
@@ -189,7 +202,7 @@ export class Sidebar {
     const wrap = document.createElement('div')
     const row = this.row({ label: e.name, depth, icon: e.icon ?? (open ? '📂' : '📁'), twisty: open ? '▾' : '▸', cls: 'folder', title: e.path })
     row.dataset.path = e.path
-    row.draggable = true
+    row.draggable = this.desktop
     row.addEventListener('click', () => this.toggle(e.path))
     row.addEventListener('contextmenu', (ev) => {
       ev.preventDefault()
@@ -200,7 +213,7 @@ export class Sidebar {
         'sep',
         { label: 'Renomear…', action: () => this.actions.rename(e.path) },
         { label: 'Escolher ícone…', action: () => this.actions.chooseIcon(e.path, e.icon, false) },
-        { label: 'Mostrar no Explorer', action: () => this.actions.reveal(e.path) },
+        ...this.desk([{ label: 'Mostrar no Explorer', action: () => this.actions.reveal(e.path) }]),
         { label: 'Apagar pasta', danger: true, action: () => this.actions.trash(e.path, true) }
       ])
     })

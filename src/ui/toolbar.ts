@@ -63,7 +63,8 @@ export class Toolbar {
   private readonly rawBtn: HTMLButtonElement
   private editor: Editor | null = null
 
-  constructor(root: HTMLElement, actions: ToolbarActions) {
+  /** desktop: mostra Abrir e os botões de dividir (não existem no celular). */
+  constructor(root: HTMLElement, desktop: boolean, actions: ToolbarActions) {
     root.replaceChildren()
     const btn = (label: string, title: string, onClick: () => void, cls = ''): HTMLButtonElement => {
       const b = document.createElement('button')
@@ -83,7 +84,7 @@ export class Toolbar {
 
     btn('☰', 'Mostrar/ocultar barra lateral (Ctrl+Shift+E)', actions.toggleSidebar, 'icon')
     btn('＋ Nota', 'Nova nota rápida (Ctrl+N)', actions.newQuickNote)
-    btn('Abrir', 'Abrir arquivo .md/.txt (Ctrl+O)', actions.openFile)
+    if (desktop) btn('Abrir', 'Abrir arquivo .md/.txt (Ctrl+O)', actions.openFile)
     sep()
     for (const def of FORMAT) {
       if (def === 'sep') {
@@ -95,8 +96,10 @@ export class Toolbar {
     }
     this.rawBtn = btn('MD', 'Alternar editor visual / Markdown cru (Ctrl+Shift+M)', actions.toggleRaw, 'fmt-raw')
     root.appendChild(Object.assign(document.createElement('div'), { className: 'spacer' }))
-    btn('⫴', 'Dividir à direita (Ctrl+\\)', actions.splitRight, 'icon')
-    btn('⊟', 'Dividir abaixo (Ctrl+Shift+\\)', actions.splitDown, 'icon')
+    if (desktop) {
+      btn('⫴', 'Dividir à direita (Ctrl+\\)', actions.splitRight, 'icon')
+      btn('⊟', 'Dividir abaixo (Ctrl+Shift+\\)', actions.splitDown, 'icon')
+    }
     btn('◐', 'Alternar tema claro/escuro (Ctrl+Shift+T)', actions.toggleTheme, 'icon')
   }
 

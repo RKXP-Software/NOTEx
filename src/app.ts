@@ -9,6 +9,7 @@ import {
   addTab,
   allGroups,
   findGroup,
+  flatten,
   groupOfTab,
   newGroup,
   parseLayout,
@@ -22,10 +23,12 @@ import {
 } from './layout'
 import { baseName, countWords, docKind, firstLineDone, isWithin, quickNoteTitle, rebase, samePath, stem, titleFromText, txtToMarkdown } from './naming'
 import { Theme, parseThemePref, type ThemePref } from './theme'
-import { choose, confirm, pickIcon, prompt, showMenu, toast } from './ui/dialogs'
+import { hasDesktopFs, isMobile } from './platform'
+import { choose, confirm, pickIcon, prompt, showMenu, toast, type MenuEntry } from './ui/dialogs'
 import { Sidebar } from './ui/sidebar'
 import { editLink, Toolbar } from './ui/toolbar'
 import { Workspace } from './ui/workspace'
+import { popLayer, pushLayer } from './ui/back'
 import { VisualEditor } from './editors/visual-editor'
 
 const SESSION_KEY = 'session'
@@ -77,7 +80,7 @@ export class App {
     this.theme = new Theme((dark) => {
       for (const d of this.docs.values()) d.setDark(dark)
     })
-    this.toolbar = new Toolbar(document.getElementById('toolbar')!, {
+    this.toolbar = new Toolbar(document.getElementById('toolbar')!, hasDesktopFs, {
       toggleSidebar: () => this.toggleSidebar(),
       newQuickNote: () => void this.newQuickNote(),
       openFile: () => void this.openFileDialog(),
@@ -89,8 +92,11 @@ export class App {
         this.scheduleSession()
       }
     })
-    this.sidebar = new Sidebar(this.el.sidebar, {
-      open: (path, opts) => void this.openPath(path, { side: opts?.side ? 'right' : undefined }),
+    this.sidebar = new Sidebar(this.el.sidebar, hasDesktopFs, {
+      open: (path, opts) => {
+        if (isMobile) this.setSidebar(false)
+        void this.openPath(path, { side: opts?.side && !isMobile ? 'right' : undefined })
+      },
       newNote: (dir, ext) => void this.newNoteIn(dir, ext),
       newFolder: (parent) => void this.newFolder(parent),
       rename: (path) => void this.renamePath(path),
@@ -140,6 +146,7 @@ export class App {
           {
             label: 'Abrir arquivo…',
             shortcut: 'Ctrl+O',
+            disabled: !hasDesktopFs,
             action: () => {
               this.focused = g
               void this.openFileDialog()
@@ -152,6 +159,7 @@ export class App {
   // ---- Inicialização ----
 
   async init(): Promise<void> {
+    document.documentElement.classList.toggle('mobile', isMobile)
     await this.loadNotebooks()
     const session = await this.loadSession()
     this.theme.set(session?.theme ?? 'system')
@@ -164,10 +172,12 @@ export class App {
     } else {
       this.sidebar.expanded.add(`nb:${QUICK_NOTEBOOK_ID}`)
     }
+    // Celular: a barra lateral é uma gaveta; abre sozinha só se não houver nota aberta.
+    if (isMobile) this.sidebarVisible = this.docs.size === 0
     this.applySidebar()
     this.sidebar.setData(this.notebooks, this.trees)
     this.render()
-    this.activeDoc()?.editor.focus()
+    if (!isMobile) this.activeDoc()?.editor.focus()
 
     this.bindSidebarResizer()
     this.bindZoom()
@@ -178,6 +188,33 @@ export class App {
       await this.flushAll()
     })
     window.addEventListener('blur', () => void this.saveAll())
+    // Android pode encerrar o app em segundo plano sem aviso: grava ao sair da tela.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') void this.flushAll()
+    })
+    if (isMobile) this.bindDrawer()
+  }
+
+  /** Gaveta no celular: fundo escurecido fecha; o botão Voltar do Android também. */
+  private bindDrawer(): void {
+    const backdrop = document.createElement('div')
+    backdrop.id = 'drawer-backdrop'
+    backdrop.addEventListener('click', () => this.setSidebar(false))
+    this.el.app.appendChild(backdrop)
+    // Abriu sem nota (gaveta já aberta no início): registra para o Voltar fechar.
+    if (this.sidebarVisible) pushLayer('drawer', () => this.setSidebar(false, true))
+  }
+
+  /** Abre/fecha a barra lateral. No celular, a gaveta é uma camada do botão Voltar. */
+  private setSidebar(visible: boolean, fromBack = false): void {
+    if (visible === this.sidebarVisible) return
+    this.sidebarVisible = visible
+    if (isMobile) {
+      if (visible) pushLayer('drawer', () => this.setSidebar(false, true))
+      else if (!fromBack) popLayer('drawer')
+    }
+    this.applySidebar()
+    this.scheduleSession()
   }
 
   private async loadNotebooks(): Promise<void> {
@@ -337,7 +374,7 @@ export class App {
       this.docs.set(doc.path, doc)
     }
     const tab = doc.path
-    if (opts.side) {
+    if (opts.side && !isMobile) {
       if (!groupOfTab(this.layout, tab)) this.layout = addTab(this.layout, target, tab)
       const id = this.newGroupId()
       this.layout = splitWithTab(this.layout, tab, target, opts.side, id)
@@ -537,7 +574,7 @@ export class App {
     if (name === null) return
     try {
       const { root } = await api.getRoot()
-      const where = await choose('Onde salvar o caderno?', `"${name}" será uma pasta com as suas notas.`, [
+      const where = !hasDesktopFs ? 0 : await choose('Onde salvar o caderno?', `"${name}" será uma pasta com as suas notas.`, [
         { label: 'Na pasta padrão', detail: root },
         { label: 'Escolher outra pasta…', detail: 'O caderno é criado como subpasta da pasta escolhida.' }
       ])
@@ -699,6 +736,7 @@ export class App {
   }
 
   async openFileDialog(): Promise<void> {
+    if (!hasDesktopFs) return
     const picked = await openDialog({
       multiple: true,
       title: 'Abrir notas',
@@ -742,9 +780,13 @@ export class App {
         })()
       },
       'sep',
-      { label: 'Dividir à direita', action: () => this.split(tab, groupId, 'right') },
-      { label: 'Dividir abaixo', action: () => this.split(tab, groupId, 'bottom') },
-      'sep',
+      ...(isMobile
+        ? []
+        : ([
+            { label: 'Dividir à direita', action: () => this.split(tab, groupId, 'right') },
+            { label: 'Dividir abaixo', action: () => this.split(tab, groupId, 'bottom') },
+            'sep'
+          ] as MenuEntry[])),
       { label: 'Renomear…', shortcut: 'F2', disabled: !nb, action: () => void this.renamePath(tab) },
       {
         label: doc?.raw ? 'Editor visual' : 'Markdown cru',
@@ -762,7 +804,9 @@ export class App {
         action: () => void this.convertNote(tab)
       },
       { label: 'Mostrar na barra lateral', disabled: !nb, action: () => nb && this.revealInSidebar(nb, tab) },
-      { label: 'Mostrar no Explorer', action: () => void revealItemInDir(tab).catch(() => undefined) }
+      ...(hasDesktopFs
+        ? [{ label: 'Mostrar no Explorer', action: () => void revealItemInDir(tab).catch(() => undefined) }]
+        : [])
     ])
   }
 
@@ -801,13 +845,12 @@ export class App {
   }
 
   private toggleSidebar(): void {
-    this.sidebarVisible = !this.sidebarVisible
-    this.applySidebar()
-    this.scheduleSession()
+    this.setSidebar(!this.sidebarVisible)
   }
 
   private applySidebar(): void {
     this.el.app.classList.toggle('no-sidebar', !this.sidebarVisible)
+    this.el.app.classList.toggle('drawer-open', isMobile && this.sidebarVisible)
     this.el.app.style.setProperty('--sidebar-width', `${this.sidebarWidth}px`)
   }
 
@@ -922,6 +965,10 @@ export class App {
   // ---- Renderização ----
 
   private render(): void {
+    if (isMobile && this.layout.type !== 'group') {
+      this.layout = flatten(this.layout, this.focused)
+      this.focused = this.layout.id
+    }
     this.workspace.render(this.layout, this.docs, this.focused)
     this.updateChrome()
     this.scheduleSession()

@@ -5,6 +5,7 @@
 import type { Group, LayoutNode, Side } from '../layout'
 import { stem } from '../naming'
 import type { Doc } from '../doc'
+import { isMobile } from '../platform'
 
 export const TAB_MIME = 'application/x-notex-tab'
 export const FILE_MIME = 'application/x-notex-file'
@@ -148,8 +149,9 @@ export class Workspace {
   private emptyHint(): HTMLElement {
     const hint = document.createElement('div')
     hint.className = 'empty-hint'
-    hint.innerHTML =
-      '<p><kbd>Ctrl</kbd>+<kbd>N</kbd> nova nota rápida</p><p><kbd>Ctrl</kbd>+<kbd>O</kbd> abrir arquivo</p><p>ou escolha uma nota na barra lateral</p>'
+    hint.innerHTML = isMobile
+      ? '<p>Toque em <b>＋ Nota</b> para uma nota rápida</p><p>ou em <b>☰</b> para ver os cadernos</p>'
+      : '<p><kbd>Ctrl</kbd>+<kbd>N</kbd> nova nota rápida</p><p><kbd>Ctrl</kbd>+<kbd>O</kbd> abrir arquivo</p><p>ou escolha uma nota na barra lateral</p>'
     return hint
   }
 
@@ -160,7 +162,8 @@ export class Workspace {
     t.setAttribute('role', 'tab')
     t.setAttribute('aria-selected', String(active))
     t.title = path
-    t.draggable = true
+    // No celular não há arrastar abas (toque rola a barra de abas).
+    t.draggable = !isMobile
     t.dataset.tab = path
 
     const label = document.createElement('span')

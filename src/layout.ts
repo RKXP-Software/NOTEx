@@ -170,6 +170,17 @@ export function resize(root: LayoutNode, path: number[], sizes: number[]): Layou
   return { ...root, children: root.children.map((c, i) => (i === head ? resize(c, rest, sizes) : c)) }
 }
 
+/**
+ * Junta todas as abas num grupo só (celular: um painel por vez). Mantém o id e a aba ativa do
+ * grupo `keepId` (o que estava em foco); as abas seguem a ordem da grade.
+ */
+export function flatten(root: LayoutNode, keepId: string): Group {
+  const groups = allGroups(root)
+  const keep = groups.find((g) => g.id === keepId) ?? groups[0]!
+  const tabs = groups.flatMap((g) => g.tabs)
+  return { type: 'group', id: keep.id, tabs, active: keep.active ?? tabs[0] ?? null }
+}
+
 /** Valida uma árvore lida da sessão salva; null se inválida. */
 export function parseLayout(value: unknown): LayoutNode | null {
   const v = value as Partial<LayoutNode> | null
