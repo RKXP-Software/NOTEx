@@ -90,6 +90,13 @@ fn sync_once(local: &dyn Host, remote: &mut dyn Remote, base: &mut SyncBase, opt
 
     for r in &remote_nbs {
         if !local_nbs.iter().any(|(l, _)| l.id == r.id) {
+            if base.known.contains(&r.id) && r.id != crate::notebooks::QUICK_NOTEBOOK_ID {
+                // Existia nos dois e sumiu daqui: foi removido deste aparelho; remove do outro lado.
+                expect_ok(remote.call(Request::DeleteNotebook { id: r.id.clone() })?)?;
+                base.known.remove(&r.id);
+                base.notebooks.remove(&r.id);
+                continue;
+            }
             local.create_notebook(&r.id, &r.name)?;
         }
         base.known.insert(r.id.clone());

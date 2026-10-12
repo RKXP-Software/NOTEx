@@ -1,6 +1,6 @@
 [package]
 name = "notex"
-version = "0.4.1"
+version = "0.4.2"
 description = "Bloco de notas leve com abas, cadernos e sincronização"
 authors = ["RKXP Software"]
 edition = "2024"

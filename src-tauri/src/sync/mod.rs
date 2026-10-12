@@ -55,6 +55,10 @@ fn handle_inner(host: &dyn Host, req: Request) -> Result<Response, String> {
             host.create_notebook(&id, &name)?;
             Response::Ok
         }
+        Request::DeleteNotebook { id } => {
+            host.forget_notebook(&id);
+            Response::Ok
+        }
         Request::Manifest { notebook } => Response::Manifest { manifest: store::manifest(&root_of(host, &notebook)?) },
         Request::Get { notebook, path } => {
             Response::File { data: b64_encode(&store::read(&root_of(host, &notebook)?, &path)?) }

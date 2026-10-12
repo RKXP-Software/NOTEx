@@ -4,6 +4,17 @@ html.mobile body {
   font-size: 14.7px;
   /* Sem "puxar para atualizar" nem rolagem da página inteira. */
   overscroll-behavior: none;
+  /* Sem zoom de página pela pinça: a pinça só muda o zoom do texto, dentro do editor. */
+  touch-action: pan-x pan-y;
+}
+
+/* Com o teclado aberto, o app ocupa só a área visível e a página não rola (barra sempre no topo). */
+html.mobile #app {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--vv-top, 0px);
+  height: var(--vv-height, 100%);
 }
 
 /* Barra de ferramentas: botões maiores, rolagem horizontal pelo toque. */
@@ -13,12 +24,9 @@ html.mobile .toolbar {
   padding-top: max(6px, env(safe-area-inset-top));
 }
 html.mobile .toolbar button {
-  min-width: 40px;
-  height: 40px;
-  font-size: 15.75px;
-}
-html.mobile .toolbar .spacer {
-  display: none;
+  min-width: 42px;
+  height: 42px;
+  font-size: 16.5px;
 }
 
 /* Gaveta lateral sobre o conteúdo. */
@@ -116,6 +124,9 @@ html.mobile #st-pos,
 html.mobile #st-kind,
 html.mobile #st-enc {
   display: none;
+}
+html.mobile #st-version {
+  display: inline;
 }
 html.mobile .statusbar .zoom button {
   min-width: 34px;

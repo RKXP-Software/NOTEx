@@ -66,6 +66,12 @@ export class Toolbar {
   /** desktop: mostra Abrir e os botões de dividir (não existem no celular). */
   constructor(root: HTMLElement, desktop: boolean, actions: ToolbarActions) {
     root.replaceChildren()
+    // Três faixas: botões fixos à esquerda, formatação rolável no meio, botões fixos à direita.
+    const mk = (cls: string): HTMLElement => root.appendChild(Object.assign(document.createElement('div'), { className: cls }))
+    const fixed = mk('tb-fixed')
+    const scroll = mk('tb-scroll')
+    const end = mk('tb-end')
+    let target: HTMLElement = fixed
     const btn = (label: string, title: string, onClick: () => void, cls = ''): HTMLButtonElement => {
       const b = document.createElement('button')
       b.textContent = label
@@ -75,17 +81,17 @@ export class Toolbar {
       // Não rouba o foco do editor ao clicar.
       b.addEventListener('mousedown', (e) => e.preventDefault())
       b.addEventListener('click', onClick)
-      root.appendChild(b)
+      target.appendChild(b)
       return b
     }
     const sep = (): void => {
-      root.appendChild(Object.assign(document.createElement('div'), { className: 'sep' }))
+      target.appendChild(Object.assign(document.createElement('div'), { className: 'sep' }))
     }
 
     btn('☰', 'Mostrar/ocultar barra lateral (Ctrl+Shift+E)', actions.toggleSidebar, 'icon')
     btn('＋ Nota', 'Nova nota rápida (Ctrl+N)', actions.newQuickNote)
     if (desktop) btn('Abrir', 'Abrir arquivo .md/.txt (Ctrl+O)', actions.openFile)
-    sep()
+    target = scroll
     for (const def of FORMAT) {
       if (def === 'sep') {
         sep()
@@ -95,7 +101,7 @@ export class Toolbar {
       this.formatButtons.set(def.id, { btn: b, def })
     }
     this.rawBtn = btn('MD', 'Alternar editor visual / Markdown cru (Ctrl+Shift+M)', actions.toggleRaw, 'fmt-raw')
-    root.appendChild(Object.assign(document.createElement('div'), { className: 'spacer' }))
+    target = end
     if (desktop) {
       btn('⫴', 'Dividir à direita (Ctrl+\\)', actions.splitRight, 'icon')
       btn('⊟', 'Dividir abaixo (Ctrl+Shift+\\)', actions.splitDown, 'icon')

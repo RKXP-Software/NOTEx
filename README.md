@@ -106,4 +106,4 @@ PLANO.md             Planejamento e situação das fases
 
 ## Situação
 
-Fases 0 a 4 concluídas (ambiente, desktop, Android, sincronização direta e Google Drive). Próxima: glossário (busca em todos os cadernos e termos com definição). Detalhes em [PLANO.md](PLANO.md).
+Fases 0 a 4 concluídas (ambiente, desktop, Android, sincronização direta e Google Drive). Versão 0.4.2: correções do Drive e do celular. Próxima: glossário (busca em todos os cadernos e termos com definição). Detalhes em [PLANO.md](PLANO.md).

@@ -1,5 +1,6 @@
 // Controlador do NOTEx: cadernos, documentos abertos, grade de painéis, sessão e atalhos.
 
+import { bindPinch, bindViewport } from './ui/viewport'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
@@ -183,6 +184,10 @@ export class App {
 
     this.bindSidebarResizer()
     this.bindZoom()
+    bindViewport()
+    bindPinch(this.el.workspace, (d) => this.zoomStep(d))
+    const v = document.getElementById('st-version')
+    if (v) v.textContent = `v${__APP_VERSION__}`
     document.addEventListener('keydown', (e) => this.onKey(e), true)
     window.addEventListener('focus', () => void this.checkExternalChanges())
     // Ao fechar: grava tudo antes (o Tauri espera o handler terminar).

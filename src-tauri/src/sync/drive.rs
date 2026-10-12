@@ -200,6 +200,14 @@ impl<A: DriveApi> DriveRemote<A> {
                 }
                 Response::Ok
             }
+            Request::DeleteNotebook { id } => {
+                if let Ok(folder) = self.notebook_folder(&id) {
+                    self.api.trash(&folder)?;
+                }
+                self.notebooks.remove(&id);
+                self.index.remove(&id);
+                Response::Ok
+            }
             Request::Manifest { notebook } => {
                 let idx = self.build_index(&notebook)?;
                 Response::Manifest {
@@ -415,6 +423,34 @@ mod tests {
         assert!(pc.root("trab").join(".lixeira").join("a.txt").exists());
         // No Drive, o apagado foi para a lixeira (não sumiu).
         assert!(drive.api.files.iter().any(|(f, _, trashed)| f.name == "a.txt" && *trashed));
+    }
+
+    #[test]
+    fn caderno_removido_de_um_lado_vai_para_a_lixeira_do_drive() {
+        let (pc, phone) = (Device::new(), Device::new());
+        let (mut bpc, mut bphone) = (SyncBase::default(), SyncBase::default());
+        let mut drive = DriveRemote::new(FakeDrive::default());
+        pc.create_notebook("trab", "Trabalho").unwrap();
+        pc.put("trab", "Sub/a.txt", "A");
+        sync(&pc, &mut drive, &mut bpc);
+        sync(&phone, &mut drive, &mut bphone);
+        assert!(phone.get("trab", "Sub/a.txt").is_some());
+
+        // Pasta dentro do caderno apagada no PC: some do Drive e do celular.
+        store::trash(&pc.root("trab"), "Sub/a.txt").unwrap();
+        fs::remove_dir(pc.root("trab").join("Sub")).unwrap();
+        sync(&pc, &mut drive, &mut bpc);
+        assert!(drive.api.files.iter().any(|(f, _, t)| f.name == "Sub" && *t));
+        sync(&phone, &mut drive, &mut bphone);
+        assert!(!phone.root("trab").join("Sub").exists());
+
+        // Caderno removido no PC: a pasta vai para a lixeira do Drive e não volta.
+        pc.forget_notebook("trab");
+        sync(&pc, &mut drive, &mut bpc);
+        assert!(drive.api.files.iter().any(|(f, _, t)| f.name == "Trabalho" && *t));
+        assert!(!pc.nbs.borrow().iter().any(|n| n.id == "trab"));
+        sync(&phone, &mut drive, &mut bphone);
+        assert!(!phone.nbs.borrow().iter().any(|n| n.id == "trab"));
     }
 
     #[test]
