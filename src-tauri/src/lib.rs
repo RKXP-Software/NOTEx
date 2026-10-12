@@ -460,20 +460,57 @@ fn shared_install_dirs() -> Option<(PathBuf, PathBuf)> {
     Some((program_data.join("NOTEx"), public.join("Documents").join("NOTEx")))
 }
 
+/// Versão portátil: um arquivo `portable` ao lado do .exe faz o NOTEx guardar tudo na pasta
+/// `Dados` (configuração e cadernos), sem tocar no perfil do usuário. Devolve a pasta `Dados`.
+#[cfg(desktop)]
+fn portable_dir() -> Option<PathBuf> {
+    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    exe_dir.join("portable").exists().then(|| exe_dir.join("Dados"))
+}
+
+/// Pasta movida (pendrive em outra letra, outro PC): cadernos dentro de `Dados\Cadernos` são
+/// religados à pasta atual.
+#[cfg(desktop)]
+fn rebase_portable(cfg: &mut Config, root: &Path) {
+    for nb in &mut cfg.notebooks {
+        if nb.path.exists() {
+            continue;
+        }
+        let parts: Vec<_> = nb.path.components().collect();
+        if let Some(i) = parts.iter().rposition(|c| c.as_os_str() == "Cadernos") {
+            let rest: PathBuf = parts[i + 1..].iter().collect();
+            if !rest.as_os_str().is_empty() {
+                nb.path = root.join(rest);
+            }
+        }
+    }
+    if let Some(r) = &cfg.root {
+        if !r.exists() && r.components().any(|c| c.as_os_str() == "Cadernos") {
+            cfg.root = None;
+        }
+    }
+}
+
 fn init_state(app: &AppHandle) -> Result<AppState, Box<dyn std::error::Error>> {
     #[cfg(windows)]
     let shared = shared_install_dirs();
     #[cfg(not(windows))]
     let shared: Option<(PathBuf, PathBuf)> = None;
-    let config_dir = match &shared {
-        Some((cfg, _)) => cfg.clone(),
-        None => app.path().app_config_dir()?,
+    #[cfg(desktop)]
+    let portable = portable_dir();
+    #[cfg(not(desktop))]
+    let portable: Option<PathBuf> = None;
+    let config_dir = match (&portable, &shared) {
+        (Some(dados), _) => dados.join("Config"),
+        (None, Some((cfg, _))) => cfg.clone(),
+        (None, None) => app.path().app_config_dir()?,
     };
     fs::create_dir_all(&config_dir)?;
     #[cfg(desktop)]
-    let root = match &shared {
-        Some((_, docs)) => docs.clone(),
-        None => app.path().document_dir()?.join("NOTEx"),
+    let root = match (&portable, &shared) {
+        (Some(dados), _) => dados.join("Cadernos"),
+        (None, Some((_, docs))) => docs.clone(),
+        (None, None) => app.path().document_dir()?.join("NOTEx"),
     };
     #[cfg(mobile)]
     let root = app.path().app_data_dir()?.join("Cadernos");
@@ -481,6 +518,10 @@ fn init_state(app: &AppHandle) -> Result<AppState, Box<dyn std::error::Error>> {
 
     let config_file = config_dir.join("config.json");
     let mut cfg: Config = fs::read(&config_file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    #[cfg(desktop)]
+    if portable.is_some() {
+        rebase_portable(&mut cfg, &root);
+    }
     let state = AppState {
         config: Mutex::new(Config::default()),
         config_file,
@@ -527,6 +568,12 @@ macro_rules! handlers {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Portátil: os dados do WebView (tema, cache) também ficam na pasta Dados.
+    #[cfg(desktop)]
+    if let Some(dados) = portable_dir() {
+        // SAFETY: executado no início do programa, antes de qualquer outra thread.
+        unsafe { std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", dados.join("WebView")) };
+    }
     let builder = tauri::Builder::default();
     // Precisa ser o primeiro plugin: uma segunda abertura só foca a janela que já existe.
     #[cfg(desktop)]
@@ -591,4 +638,23 @@ pub fn run() {
         ))
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o NOTEx");
+}
+
+#[cfg(all(test, desktop))]
+mod portable_tests {
+    use super::*;
+
+    #[test]
+    fn pasta_portatil_movida_religa_os_cadernos() {
+        let novo = tempfile::tempdir().unwrap();
+        let root = novo.path().join("Dados").join("Cadernos");
+        fs::create_dir_all(root.join("Trabalho")).unwrap();
+        let mut cfg = Config::default();
+        let velho = PathBuf::from("E:").join("antigo").join("NOTEx-Portatil").join("Dados").join("Cadernos");
+        cfg.notebooks.push(notebooks::Notebook { id: "t".into(), name: "Trabalho".into(), path: velho.join("Trabalho") });
+        cfg.root = Some(velho);
+        rebase_portable(&mut cfg, &root);
+        assert_eq!(cfg.notebooks[0].path, root.join("Trabalho"));
+        assert_eq!(cfg.root, None);
+    }
 }

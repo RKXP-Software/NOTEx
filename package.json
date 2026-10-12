@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "icon": "node scripts/gerar-icone.mjs",
     "apk": "tauri android build --apk --target aarch64 --target armv7",
-    "distribuir": "node scripts/distribuir.mjs"
+    "distribuir": "node scripts/distribuir.mjs",
+    "portable": "node scripts/portable.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

@@ -50,6 +50,7 @@ No celular: abas no topo, um painel por vez, barra lateral como gaveta (☰), me
 Os instaladores ficam em `distribuicao/v<versão>/` (fora do git; `npm run distribuir` copia os da versão atual, mantendo o histórico):
 
 - **Windows:** `NOTEx-<versão>-Windows-Instalador.exe`. O instalador pergunta se instala **somente para o usuário atual** ou **para todos os usuários**. Na opção "para todos", a configuração fica em `C:\ProgramData\NOTEx` e os cadernos padrão em `C:\Users\Public\Documents\NOTEx`, compartilhados entre os usuários. Rodar o instalador de uma versão nova por cima atualiza a instalação. O desinstalador fica em Configurações → Aplicativos; a opção de apagar dados limpa só a configuração e **nunca apaga as notas**.
+- **Windows portátil:** `NOTEx-<versão>-Windows-Portatil.zip`. Extraia em qualquer pasta ou pendrive e abra `NOTEx.exe`, sem instalar. O arquivo `portable` ao lado do programa liga o modo portátil: configuração, sessão e cadernos ficam na pasta `Dados`. Gere com `npm run portable` (depois de `npm run tauri build`).
 - **Android:** `NOTEx-<versão>-Android.apk`, assinado. Copie para o celular e abra (o Android pede para permitir a instalação de fontes desconhecidas). Atualizações precisam ser assinadas com a mesma chave.
 
 Na primeira vez, o Firewall do Windows pode bloquear a conexão direta: libere as portas 47800 (TCP) e 47801 (UDP) para o NOTEx.
