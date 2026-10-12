@@ -443,11 +443,38 @@ fn save_state(state: State<AppState>, key: String, json: String) -> CmdResult<()
 
 // ---- Inicialização ----
 
+/// Instalado "para todos os usuários" (em Arquivos de Programas): configuração e cadernos
+/// padrão compartilhados entre os usuários do PC. Devolve (pasta de configuração, cadernos).
+#[cfg(windows)]
+fn shared_install_dirs() -> Option<(PathBuf, PathBuf)> {
+    let exe = std::env::current_exe().ok()?;
+    let in_program_files = ["ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"]
+        .iter()
+        .filter_map(|v| std::env::var_os(v))
+        .any(|pf| notebooks::is_within(Path::new(&pf), &exe));
+    if !in_program_files {
+        return None;
+    }
+    let program_data = PathBuf::from(std::env::var_os("ProgramData")?);
+    let public = PathBuf::from(std::env::var_os("PUBLIC")?);
+    Some((program_data.join("NOTEx"), public.join("Documents").join("NOTEx")))
+}
+
 fn init_state(app: &AppHandle) -> Result<AppState, Box<dyn std::error::Error>> {
-    let config_dir = app.path().app_config_dir()?;
+    #[cfg(windows)]
+    let shared = shared_install_dirs();
+    #[cfg(not(windows))]
+    let shared: Option<(PathBuf, PathBuf)> = None;
+    let config_dir = match &shared {
+        Some((cfg, _)) => cfg.clone(),
+        None => app.path().app_config_dir()?,
+    };
     fs::create_dir_all(&config_dir)?;
     #[cfg(desktop)]
-    let root = app.path().document_dir()?.join("NOTEx");
+    let root = match &shared {
+        Some((_, docs)) => docs.clone(),
+        None => app.path().document_dir()?.join("NOTEx"),
+    };
     #[cfg(mobile)]
     let root = app.path().app_data_dir()?.join("Cadernos");
     fs::create_dir_all(&root)?;
@@ -500,7 +527,17 @@ macro_rules! handlers {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Precisa ser o primeiro plugin: uma segunda abertura só foca a janela que já existe.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+    }));
+    let builder = builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init());
     #[cfg(mobile)]

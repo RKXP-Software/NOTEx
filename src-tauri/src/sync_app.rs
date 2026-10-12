@@ -803,11 +803,20 @@ mod server {
         }
     }
 
+    /// Liga o servidor; se a porta estiver ocupada (outro programa), tenta de novo a cada 10 s.
     pub fn start_server(app: AppHandle) {
-        let ctx: std::sync::Arc<dyn ServerCtx> = std::sync::Arc::new(AppHost { app: app.clone() });
-        if let Err(e) = http::start(ctx) {
-            *app.state::<AppState>().server.error.lock().unwrap() = Some(e);
-        }
+        std::thread::spawn(move || {
+            loop {
+                let ctx: std::sync::Arc<dyn ServerCtx> = std::sync::Arc::new(AppHost { app: app.clone() });
+                let result = http::start(ctx);
+                let ok = result.is_ok();
+                *app.state::<AppState>().server.error.lock().unwrap() = result.err();
+                if ok {
+                    return;
+                }
+                std::thread::sleep(Duration::from_secs(10));
+            }
+        });
     }
 
     #[derive(Serialize)]

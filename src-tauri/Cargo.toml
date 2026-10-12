@@ -1,6 +1,6 @@
 [package]
 name = "notex"
-version = "0.4.0"
+version = "0.4.1"
 description = "Bloco de notas leve com abas, cadernos e sincronização"
 authors = ["RKXP Software"]
 edition = "2024"
@@ -39,6 +39,8 @@ tiny_http = "0.12"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 if-addrs = "0.13"
 hostname = "0.4"
+# Abrir o NOTEx de novo traz a janela existente (evita duas cópias disputando a porta 47800).
+tauri-plugin-single-instance = "2"
 
 # Leitura do QR code pela câmera: só no celular.
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
