@@ -59,14 +59,14 @@ src-tauri/           Núcleo Rust
 
 ## Fases
 
-| # | Entrega | Critério de pronto |
-|---|---|---|
-| 0 | Ambiente: Rust, Tauri CLI, Android SDK/NDK; projeto Tauri criado; git + GitHub | `npm run tauri dev` abre janela; build Android "olá mundo" instala no celular |
-| 1 | **Desktop núcleo**: cadernos, nota rápida, abas, grade de painéis, editor WYSIWYG (.md) e texto (.txt), salvamento automático, sessão, tema claro/escuro, instalador | Uso diário possível no Windows; instalador < 15 MB |
-| 2 | **Android**: mesma interface adaptada (abas no topo, menu de cadernos), armazenamento local dos cadernos | APK instalado, cria/edita notas offline |
-| 3 | **Sincronização Wi-Fi**: motor + transporte LAN + pareamento QR + conflitos | Editar no celular aparece no PC e vice-versa; conflito gera cópia |
-| 4 | **Google Drive**: OAuth + transporte Drive | Sincroniza fora da rede local |
-| 5 | **Glossário**: busca global + termos definidos | Busca em todos os cadernos em < 200 ms para ~milhares de notas |
+| # | Entrega | Critério de pronto | Situação |
+|---|---|---|---|
+| 0 | Ambiente: Rust, Tauri CLI, Android SDK/NDK; projeto Tauri criado; git + GitHub | `npm run tauri dev` abre janela; build Android "olá mundo" instala no celular | ✅ |
+| 1 | **Desktop núcleo**: cadernos, nota rápida, abas, grade de painéis, editor WYSIWYG (.md) e texto (.txt), salvamento automático, sessão, tema claro/escuro, instalador | Uso diário possível no Windows; instalador < 15 MB | ✅ (instalador ~2 MB) |
+| 2 | **Android**: mesma interface adaptada (abas no topo, menu de cadernos), armazenamento local dos cadernos | APK instalado, cria/edita notas offline | ✅ (APK ~10 MB) |
+| 3 | **Sincronização Wi-Fi**: motor + transporte LAN + pareamento QR + conflitos | Editar no celular aparece no PC e vice-versa; conflito gera cópia | ✅ rede local e NordVPN Meshnet |
+| 4 | **Google Drive**: OAuth + transporte Drive | Sincroniza fora da rede local | — |
+| 5 | **Glossário**: busca global + termos definidos | Busca em todos os cadernos em < 200 ms para ~milhares de notas | — |
 
 Cada fase tem testes automatizados (Vitest na interface, `cargo test` no Rust), como no MDR.
 
@@ -75,4 +75,7 @@ Cada fase tem testes automatizados (Vitest na interface, `cargo test` no Rust), 
 - **WYSIWYG e Markdown escrito à mão:** ao abrir um `.md` criado em outro editor, o NOTEx pode normalizar a sintaxe ao salvar (ex.: `*itálico*` → `_itálico_`, espaçamento de listas). O conteúdo é preservado; só a forma do Markdown muda. Haverá um modo "Markdown cru" por aba para quem quiser editar o código.
 - **Android e pastas:** no celular, os cadernos ficam no armazenamento do app. Exportar ou compartilhar `.md`/`.txt` é feito pelo menu "Compartilhar" do Android.
 - **Wi-Fi:** o Firewall do Windows vai pedir permissão na primeira vez. Algumas redes públicas e corporativas bloqueiam a comunicação entre aparelhos; nesse caso, use o Google Drive ou o hotspot do celular.
+- **Firewall (PC):** as portas 47800/TCP e 47801/UDP precisam de regra de entrada (perfil "Qualquer"), porque as redes do PC estão como Públicas.
+- **Sem Wi-Fi no celular:** a sincronização funciona pelos dados móveis via rede mesh (NordVPN Meshnet, faixa 100.64.0.0/10), incluída no QR code.
+- **Limitações atuais da sincronização:** o celular só sincroniza com o app aberto; arquivos editados no PC por outros programas chegam ao celular na próxima sincronização disparada pelo celular (abrir o app, editar ou "Sincronizar agora").
 - **Instalação:** Rust (~1,5 GB) + Android SDK/NDK (~5 GB) + Android Studio (opcional).
