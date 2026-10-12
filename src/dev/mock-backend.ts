@@ -13,6 +13,7 @@ const state = new Map<string, string>()
 const notebooks: { id: string; name: string; path: string }[] = [{ id: 'rapidas', name: 'Rápidas', path: `${ROOT}${SEP}Rápidas` }]
 const icons = new Map<string, string>()
 let pairedMock = false
+let driveMock = false
 
 const parent = (p: string): string => p.slice(0, p.lastIndexOf(SEP))
 const base = (p: string): string => p.slice(p.lastIndexOf(SEP) + 1)
@@ -197,6 +198,21 @@ function handle(cmd: string, a: Args): unknown {
         ips: ['192.168.0.10'],
         svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21"><rect width="21" height="21" fill="#fff"/><path d="M1 1h7v7H1zM13 1h7v7h-7zM1 13h7v7H1z" fill="#000"/></svg>'
       }
+    case 'drive_status':
+      return {
+        configured: true,
+        connected: driveMock,
+        email: driveMock ? 'voce@gmail.com' : null,
+        state: driveMock ? 'idle' : 'off',
+        lastSync: driveMock ? Date.now() : null,
+        message: '',
+        conflicts: 0
+      }
+    case 'drive_connect':
+      return new Promise((r) => setTimeout(() => ((driveMock = true), r('voce@gmail.com')), 1500))
+    case 'drive_disconnect':
+      driveMock = false
+      return null
     case 'sync_client_status':
       return { state: 'unpaired', serverName: null, lastSync: null, message: '', conflicts: 0 }
     default:

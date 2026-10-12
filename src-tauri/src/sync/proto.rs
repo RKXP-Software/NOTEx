@@ -115,6 +115,8 @@ pub enum Request {
     Rmdir { notebook: String, path: String },
     /// Espera até haver mudança no PC depois de `since` (ou o tempo esgotar).
     Wait { since: u64 },
+    /// O celular pede o acesso ao Google Drive conectado no PC (para sincronizar só pelo Drive).
+    DriveCredentials,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,6 +130,8 @@ pub enum Response {
     /// O arquivo mudou no PC desde o manifesto: o cliente refaz a sincronização.
     Conflict { current: Option<String> },
     Changes { counter: u64 },
+    /// None se o PC não tem Google Drive conectado.
+    DriveCredentials { refresh_token: Option<String>, email: Option<String> },
     Error { message: String },
 }
 

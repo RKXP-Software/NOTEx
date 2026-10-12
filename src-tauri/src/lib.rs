@@ -22,8 +22,10 @@ struct AppState {
     state_dir: PathBuf,
     /// Pasta padrão de fábrica para novos cadernos (Documentos\NOTEx no desktop).
     default_root: PathBuf,
-    /// Sincronização: lado celular (cliente).
+    /// Sincronização: lado celular (cliente da conexão direta).
     client: sync_app::ClientRuntime,
+    /// Sincronização pelo Google Drive (PC e celular).
+    drive: sync_app::DriveRuntime,
     /// Sincronização: lado PC (servidor) e contador de mudanças que os celulares escutam.
     #[cfg(desktop)]
     server: sync_app::ServerState,
@@ -34,7 +36,10 @@ struct AppState {
 /// Arquivos mudaram por ação do usuário: no PC acorda os celulares; no celular agenda a sincronização.
 fn touched(app: &AppHandle) {
     #[cfg(desktop)]
-    app.state::<AppState>().changes.bump();
+    {
+        app.state::<AppState>().changes.bump();
+        sync_app::request_drive_sync(app, std::time::Duration::from_secs(2));
+    }
     #[cfg(mobile)]
     sync_app::request_sync(app, std::time::Duration::from_millis(1500));
 }
@@ -453,6 +458,7 @@ fn init_state(app: &AppHandle) -> Result<AppState, Box<dyn std::error::Error>> {
         config: Mutex::new(Config::default()),
         config_file,
         client: sync_app::ClientRuntime::load(config_dir.join("sync-client.json")),
+        drive: sync_app::DriveRuntime::load(config_dir.join("drive.json")),
         #[cfg(desktop)]
         server: sync_app::ServerState::load(config_dir.join("sync-server.json")),
         #[cfg(desktop)]
@@ -508,6 +514,7 @@ pub fn run() {
             sync_app::start_server(app.handle().clone());
             #[cfg(mobile)]
             sync_app::start_client_loop(app.handle().clone());
+            sync_app::start_drive_loop(app.handle().clone());
             Ok(())
         })
         .invoke_handler(handlers!(
@@ -539,6 +546,10 @@ pub fn run() {
             sync_app::sync_unpair,
             sync_app::sync_now,
             sync_app::sync_set_active,
+            sync_app::drive_status,
+            sync_app::drive_connect,
+            sync_app::drive_disconnect,
+            sync_app::drive_sync_now,
         ))
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o NOTEx");

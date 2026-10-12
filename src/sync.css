@@ -135,3 +135,39 @@ html.mobile .sync-indicator {
   padding: 6px 8px;
   font-size: 14px;
 }
+
+/* Bloco do Google Drive no painel. */
+.drive-section {
+  padding: 4px 12px 10px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+.drive-section h3 {
+  margin-top: 8px;
+}
+.drive-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.drive-actions button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  cursor: pointer;
+}
+.drive-actions button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.drive-actions button.danger {
+  color: var(--danger);
+}
+.drive-actions button:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}

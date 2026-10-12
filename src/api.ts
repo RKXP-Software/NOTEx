@@ -105,6 +105,26 @@ export interface FilesChanged {
   removed: string[]
 }
 
+export interface DriveStatus {
+  configured: boolean
+  connected: boolean
+  email: string | null
+  state: 'off' | 'idle' | 'syncing' | 'offline' | 'error'
+  lastSync: number | null
+  message: string
+  conflicts: number
+}
+
+export const EVENT_DRIVE_STATUS = 'notex://drive-status'
+
+export const driveApi = {
+  status: () => invoke<DriveStatus>('drive_status'),
+  /** Abre o navegador para o login no Google (só no PC). Devolve o e-mail. */
+  connect: () => invoke<string>('drive_connect'),
+  disconnect: () => invoke<void>('drive_disconnect'),
+  syncNow: () => invoke<void>('drive_sync_now')
+}
+
 export const EVENT_FILES = 'notex://files-changed'
 export const EVENT_SYNC_STATUS = 'notex://sync-status'
 

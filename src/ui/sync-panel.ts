@@ -2,7 +2,7 @@
 // No PC mostra o QR code e os celulares pareados; no celular lê o QR e mostra a conexão com o PC.
 
 import { listen } from '@tauri-apps/api/event'
-import { EVENT_SYNC_STATUS, errorMessage, syncApi, type ClientStatus, type ServerStatus } from '../api'
+import { EVENT_DRIVE_STATUS, EVENT_SYNC_STATUS, driveApi, errorMessage, syncApi, type ClientStatus, type DriveStatus, type ServerStatus } from '../api'
 import { isMobile } from '../platform'
 import { confirm, panel, prompt, toast } from './dialogs'
 
@@ -37,6 +37,9 @@ export function deviceName(ua = navigator.userAgent): string {
 export class SyncUi {
   private client: ClientStatus | null = null
   private server: ServerStatus | null = null
+  private drive: DriveStatus | null = null
+  /** Login no Google em andamento (o painel se redesenha; o botão não pode voltar ao normal). */
+  private connecting = false
 
   constructor(private readonly indicator: HTMLElement) {
     indicator.addEventListener('click', () => void this.open())
@@ -45,6 +48,16 @@ export class SyncUi {
   }
 
   async init(): Promise<void> {
+    this.drive = await driveApi.status().catch(() => null)
+    await listen<DriveStatus>(EVENT_DRIVE_STATUS, (e) => {
+      const before = this.drive
+      this.drive = e.payload
+      this.render()
+      if (e.payload.state === 'idle' && e.payload.conflicts > 0 && before?.state === 'syncing') {
+        toast(`Conflito: ${e.payload.conflicts} nota(s) editada(s) em dois aparelhos. A versão deste aparelho foi salva como cópia "(conflito …)".`)
+      }
+      if (before?.connected && !e.payload.connected && e.payload.message) toast(e.payload.message, 'error')
+    })
     if (isMobile) {
       this.client = await syncApi.clientStatus().catch(() => null)
       await listen<ClientStatus>(EVENT_SYNC_STATUS, (e) => {
@@ -75,6 +88,21 @@ export class SyncUi {
   private render(): void {
     const i = this.indicator
     i.className = 'sync-indicator'
+    const d = this.drive
+    if (d?.connected) {
+      // Com o Drive ligado, ele é o caminho da sincronização (PC e celular).
+      if (d.state === 'syncing') {
+        i.textContent = '☁ Sincronizando…'
+      } else if (d.state === 'idle') {
+        i.textContent = d.lastSync ? `☁ Sincronizado ${time(d.lastSync)}` : '☁ Google Drive'
+        i.classList.add('ok')
+      } else {
+        i.textContent = d.state === 'offline' ? '☁ Sem internet' : '☁ ⚠ Erro no Drive'
+        i.classList.add('warn')
+      }
+      i.title = d.message || `Google Drive: ${d.email ?? ''}`
+      return
+    }
     if (isMobile) {
       const c = this.client
       if (!c || c.state === 'unpaired') {
@@ -122,7 +150,7 @@ export class SyncUi {
 
   private async openServer(): Promise<void> {
     await panel((box, close) => {
-      box.append(el('h2', { textContent: 'Sincronização com o celular' }))
+      box.append(el('h2', { textContent: 'Sincronização' }))
       const body = el('div', { className: 'sync-body' })
       box.append(body)
       let qr: { svg: string; ips: string[]; link: string } | null = null
@@ -132,6 +160,11 @@ export class SyncUi {
       const draw = (): void => {
         const s = this.server
         body.replaceChildren()
+        body.append(this.driveSection(draw))
+        body.append(el('h3', { textContent: 'Conexão direta com o celular' }))
+        if (this.drive?.connected) {
+          body.append(el('p', { className: 'muted', textContent: 'Com o Google Drive ligado, os celulares pareados recebem o acesso ao Drive e sincronizam por ele. Parear continua servindo para conectar um celular novo.' }))
+        }
         if (!s?.running) {
           body.append(el('p', { className: 'sync-error', textContent: s?.error ?? 'Servidor de sincronização desligado.' }))
           return
@@ -240,6 +273,12 @@ export class SyncUi {
         const actions = el('div', { className: 'modal-buttons' })
         const closeBtn = el('button', { textContent: 'Fechar' })
         closeBtn.addEventListener('click', close)
+        if (this.drive?.connected) {
+          body.append(this.driveSection(draw))
+          actions.append(closeBtn)
+          body.append(actions)
+          return
+        }
         if (!c || c.state === 'unpaired') {
           body.append(
             el('p', { textContent: 'Conecte este celular ao NOTEx do seu PC para as notas ficarem iguais nos dois.' }),
@@ -288,13 +327,85 @@ export class SyncUi {
       draw()
       // Acompanha o estado enquanto o painel está aberto.
       const timer = window.setInterval(() => {
-        void syncApi.clientStatus().then((c) => {
+        void Promise.all([syncApi.clientStatus(), driveApi.status()]).then(([c, d]) => {
           this.client = c
+          this.drive = d
           draw()
         })
       }, 1000)
       return () => window.clearInterval(timer)
     })
+  }
+
+  /** Bloco do Google Drive no painel (PC: conectar/desconectar; celular: estado). */
+  private driveSection(redraw: () => void): HTMLElement {
+    const d = this.drive
+    const sec = el('div', { className: 'drive-section' })
+    sec.append(el('h3', { textContent: '☁ Google Drive' }))
+    if (!d?.configured) {
+      sec.append(el('p', { className: 'muted', textContent: 'O Google Drive ainda não foi configurado neste build do NOTEx.' }))
+      return sec
+    }
+    const row = el('div', { className: 'drive-actions' })
+    if (d.connected) {
+      const states: Record<DriveStatus['state'], string> = {
+        off: '',
+        idle: '✓ Sincronizado',
+        syncing: '⟳ Sincronizando…',
+        offline: '⚠ Sem internet',
+        error: '⚠ Erro na sincronização'
+      }
+      sec.append(
+        el('p', {}, 'Conta: ', el('strong', { textContent: d.email ?? '—' })),
+        el('p', { className: d.state === 'idle' ? 'sync-ok' : d.state === 'syncing' ? '' : 'sync-error', textContent: states[d.state] }),
+        el('p', { className: 'muted', textContent: d.lastSync ? `Última sincronização: ${time(d.lastSync)} (${ago(d.lastSync)}). Mudanças do outro aparelho chegam em até ~20 s.` : 'Primeira sincronização em andamento…' })
+      )
+      if (d.message) sec.append(el('p', { className: 'muted', textContent: d.message }))
+      const now = el('button', { textContent: 'Sincronizar agora' })
+      now.addEventListener('click', () => void driveApi.syncNow())
+      const off = el('button', { className: 'danger', textContent: isMobile ? 'Parar de usar o Drive aqui' : 'Desconectar' })
+      off.addEventListener('click', () => {
+        void (async () => {
+          const msg = isMobile
+            ? 'Este celular volta a sincronizar direto com o PC. As notas continuam aqui e no Drive.'
+            : 'O NOTEx deixa de usar o Google Drive neste PC e nos celulares. As notas continuam no PC, nos celulares e no Drive.'
+          if (!(await confirm('Desconectar o Google Drive', msg, 'Desconectar', true))) return
+          await driveApi.disconnect()
+          this.drive = await driveApi.status()
+          this.render()
+          redraw()
+        })()
+      })
+      row.append(off, now)
+    } else if (isMobile) {
+      sec.append(el('p', { className: 'muted', textContent: 'Conecte o Google Drive no NOTEx do PC: este celular pareado recebe o acesso sozinho na próxima sincronização.' }))
+    } else {
+      sec.append(el('p', { className: 'muted', textContent: 'Sincronize pelo Google Drive: funciona de qualquer lugar, mesmo com o PC desligado. As notas ficam na pasta NOTEx do seu Drive, e o NOTEx só acessa o que ele mesmo criou.' }))
+      const connect = el('button', {
+        className: 'primary',
+        textContent: this.connecting ? 'Aguardando o login no navegador…' : 'Conectar Google Drive',
+        disabled: this.connecting
+      })
+      connect.addEventListener('click', () => {
+        void (async () => {
+          this.connecting = true
+          redraw()
+          try {
+            const email = await driveApi.connect()
+            toast(`Google Drive conectado: ${email}. Enviando as notas…`)
+            this.drive = await driveApi.status()
+            this.render()
+          } catch (e) {
+            toast(errorMessage(e), 'error')
+          }
+          this.connecting = false
+          redraw()
+        })()
+      })
+      row.append(connect)
+    }
+    sec.append(row)
+    return sec
   }
 
   private async pairWith(link: string, close: () => void): Promise<void> {

@@ -2,7 +2,9 @@
 // servidor e pareamento no PC, rotina automática no celular e comandos para a interface.
 
 use crate::sync::client::{ClientConfig, HttpRemote, OFFLINE, ServerInfo, parse_link};
+use crate::sync::drive::DriveRemote;
 use crate::sync::engine::{self, Options, Remote};
+use crate::sync::google::{self, GoogleDrive};
 use crate::sync::proto::{NotebookInfo, Request, Response, new_id};
 use crate::sync::Host;
 use crate::{AppState, CmdResult, notebooks};
@@ -177,6 +179,10 @@ fn run_sync(app: &AppHandle) {
     let state = app.state::<AppState>();
     let rt = &state.client;
     let _guard = rt.running.lock().unwrap();
+    // Com o Google Drive ativo, a sincronização é só pelo Drive.
+    if state.drive.connected() {
+        return;
+    }
     let (info, device_id, device_name, mut base) = {
         let cfg = rt.cfg.lock().unwrap();
         match &cfg.server {
@@ -193,6 +199,16 @@ fn run_sync(app: &AppHandle) {
         Ok(r) => r,
         Err(e) => return set_status(app, |s| (s.state, s.message) = ("error".into(), e)),
     };
+    // O PC conectou o Google Drive? Então o celular recebe o acesso e passa a usar só o Drive.
+    if let Ok(Response::DriveCredentials { refresh_token: Some(token), email }) = remote.call(Request::DriveCredentials) {
+        adopt_drive(app, token, email);
+        set_status(app, |s| {
+            s.state = "idle".into();
+            s.message = "Sincronizando pelo Google Drive.".into();
+        });
+        request_drive_sync(app, Duration::from_millis(50));
+        return;
+    }
     let label = format!(
         "{} {}",
         if device_name.is_empty() { "celular" } else { &device_name },
@@ -224,14 +240,10 @@ fn run_sync(app: &AppHandle) {
     }
 }
 
-/// Agenda uma sincronização logo após mudanças locais (agrupa gravações seguidas).
-pub fn request_sync(app: &AppHandle, delay: Duration) {
+/// Agenda `run` para daqui a `delay`; chamadas seguidas adiam a mesma execução (agrupa gravações).
+fn schedule(app: &AppHandle, slot: fn(&AppState) -> &Mutex<Option<Instant>>, delay: Duration, run: fn(&AppHandle)) {
     let state = app.state::<AppState>();
-    let rt = &state.client;
-    if !rt.paired() {
-        return;
-    }
-    let mut sched = rt.scheduled.lock().unwrap();
+    let mut sched = slot(&state).lock().unwrap();
     let first = sched.is_none();
     *sched = Some(Instant::now() + delay);
     drop(sched);
@@ -241,18 +253,30 @@ pub fn request_sync(app: &AppHandle, delay: Duration) {
     let app = app.clone();
     std::thread::spawn(move || {
         loop {
-            let due = *app.state::<AppState>().client.scheduled.lock().unwrap();
+            let state = app.state::<AppState>();
+            let due = *slot(&state).lock().unwrap();
             match due {
                 Some(t) if t > Instant::now() => std::thread::sleep(t - Instant::now()),
                 Some(_) => {
-                    *app.state::<AppState>().client.scheduled.lock().unwrap() = None;
-                    run_sync(&app);
+                    *slot(&state).lock().unwrap() = None;
+                    run(&app);
                     return;
                 }
                 None => return,
             }
         }
     });
+}
+
+/// Agenda uma sincronização logo após mudanças locais: pelo Drive se conectado, senão direto com o PC.
+pub fn request_sync(app: &AppHandle, delay: Duration) {
+    let state = app.state::<AppState>();
+    if state.drive.connected() {
+        return request_drive_sync(app, delay);
+    }
+    if state.client.paired() {
+        schedule(app, |s| &s.client.scheduled, delay, run_sync);
+    }
 }
 
 /// Rotina do celular: com o app aberto, sincroniza e fica "escutando" mudanças no PC.
@@ -266,7 +290,7 @@ pub fn start_client_loop(app: AppHandle) {
             loop {
                 let state = app.state::<AppState>();
                 let rt = &state.client;
-                if !rt.active.load(Ordering::Relaxed) || !rt.paired() {
+                if !rt.active.load(Ordering::Relaxed) || !rt.paired() || state.drive.connected() {
                     since = u64::MAX;
                     std::thread::sleep(Duration::from_millis(700));
                     continue;
@@ -374,7 +398,270 @@ pub fn sync_now(app: AppHandle) {
 pub fn sync_set_active(app: AppHandle, active: bool, tz_offset_min: i32) {
     let state = app.state::<AppState>();
     state.client.tz_offset_min.store(tz_offset_min, Ordering::Relaxed);
-    state.client.active.store(active, Ordering::Relaxed);
+    let was = state.client.active.swap(active, Ordering::Relaxed);
+    // Voltou para o app: busca mudanças do Drive já (a conexão direta tem a própria rotina).
+    if active && !was {
+        request_drive_sync(&app, Duration::from_millis(100));
+    }
+}
+
+// =====================================================================================
+// Google Drive (PC e celular)
+// =====================================================================================
+//
+// Com o Drive conectado, PC e celular sincronizam só com ele (o "ponto de encontro"). O login
+// acontece no PC; o celular pareado recebe o acesso pelo canal cifrado (Request::DriveCredentials).
+
+pub const EVENT_DRIVE: &str = "notex://drive-status";
+/// Intervalo para buscar mudanças do outro aparelho no Drive (com o app aberto).
+const DRIVE_POLL: Duration = Duration::from_secs(20);
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DriveConfig {
+    #[serde(default)]
+    refresh_token: Option<String>,
+    #[serde(default)]
+    email: Option<String>,
+    #[serde(default)]
+    base: engine::SyncBase,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveStatus {
+    /// O build tem o cliente OAuth (google.secret.json) embutido.
+    pub configured: bool,
+    pub connected: bool,
+    pub email: Option<String>,
+    /// "off" | "idle" | "syncing" | "offline" | "error"
+    pub state: String,
+    pub last_sync: Option<u64>,
+    pub message: String,
+    pub conflicts: usize,
+}
+
+pub struct DriveRuntime {
+    cfg: Mutex<DriveConfig>,
+    file: PathBuf,
+    running: Mutex<()>,
+    scheduled: Mutex<Option<Instant>>,
+    status: Mutex<DriveStatus>,
+    /// Conexão reaproveitada entre sincronizações (token de acesso e pasta NOTEx em cache).
+    remote: Mutex<Option<DriveRemote<GoogleDrive>>>,
+}
+
+impl DriveRuntime {
+    pub fn load(file: PathBuf) -> Self {
+        let cfg: DriveConfig = fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let connected = cfg.refresh_token.is_some();
+        let status = DriveStatus {
+            configured: google::client().is_some(),
+            connected,
+            email: cfg.email.clone(),
+            state: if connected { "idle" } else { "off" }.into(),
+            ..Default::default()
+        };
+        Self {
+            cfg: Mutex::new(cfg),
+            file,
+            running: Mutex::new(()),
+            scheduled: Mutex::new(None),
+            status: Mutex::new(status),
+            remote: Mutex::new(None),
+        }
+    }
+
+    pub fn connected(&self) -> bool {
+        self.cfg.lock().map(|c| c.refresh_token.is_some()).unwrap_or(false)
+    }
+
+    /// Refresh token e e-mail (para repassar ao celular pareado).
+    pub fn credentials(&self) -> (Option<String>, Option<String>) {
+        let c = self.cfg.lock().unwrap();
+        (c.refresh_token.clone(), c.email.clone())
+    }
+
+    fn save(&self, cfg: &DriveConfig) {
+        if let Ok(json) = serde_json::to_vec_pretty(cfg) {
+            let _ = crate::textfile::write_atomic(&self.file, &json);
+        }
+    }
+}
+
+fn set_drive_status(app: &AppHandle, f: impl FnOnce(&mut DriveStatus)) {
+    let state = app.state::<AppState>();
+    let snapshot = {
+        let mut st = state.drive.status.lock().unwrap();
+        f(&mut st);
+        st.clone()
+    };
+    let _ = app.emit(EVENT_DRIVE, snapshot);
+}
+
+/// Passa a usar o Drive com este acesso (login no PC ou recebido do PC).
+fn adopt_drive(app: &AppHandle, token: String, email: Option<String>) {
+    let state = app.state::<AppState>();
+    {
+        let mut cfg = state.drive.cfg.lock().unwrap();
+        if cfg.refresh_token.as_ref() == Some(&token) {
+            return;
+        }
+        cfg.refresh_token = Some(token);
+        cfg.email = email.clone();
+        cfg.base = Default::default();
+        state.drive.save(&cfg);
+    }
+    *state.drive.remote.lock().unwrap() = None;
+    set_drive_status(app, |s| {
+        s.connected = true;
+        s.email = email;
+        s.state = "idle".into();
+        s.message.clear();
+    });
+}
+
+fn forget_drive(app: &AppHandle, message: String) -> Option<String> {
+    let state = app.state::<AppState>();
+    let token = {
+        let mut cfg = state.drive.cfg.lock().unwrap();
+        let t = cfg.refresh_token.take();
+        cfg.email = None;
+        cfg.base = Default::default();
+        state.drive.save(&cfg);
+        t
+    };
+    *state.drive.remote.lock().unwrap() = None;
+    set_drive_status(app, |s| {
+        s.connected = false;
+        s.email = None;
+        s.state = "off".into();
+        s.message = message;
+    });
+    token
+}
+
+fn run_drive_sync(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let rt = &state.drive;
+    let _guard = rt.running.lock().unwrap();
+    let (token, mut base) = {
+        let cfg = rt.cfg.lock().unwrap();
+        match &cfg.refresh_token {
+            Some(t) => (t.clone(), cfg.base.clone()),
+            None => return,
+        }
+    };
+    let Some(client) = google::client() else {
+        return set_drive_status(app, |s| (s.state, s.message) = ("error".into(), "Este build do NOTEx não tem o Google Drive configurado.".into()));
+    };
+    set_drive_status(app, |s| {
+        s.state = "syncing".into();
+        s.message.clear();
+    });
+    let mut guard = rt.remote.lock().unwrap();
+    let remote = guard.get_or_insert_with(|| DriveRemote::new(GoogleDrive::new(client, token.clone())));
+    remote.reset();
+    let who = if cfg!(mobile) {
+        let name = state.client.cfg.lock().unwrap().device_name.clone();
+        if name.is_empty() { "celular".to_string() } else { name }
+    } else {
+        "PC".to_string()
+    };
+    let label = format!("{who} {}", local_label(crate::sync::proto::now_ms(), state.client.tz_offset_min.load(Ordering::Relaxed)));
+    let host = AppHost { app: app.clone() };
+    let result = engine::sync_all(&host, remote, &mut base, &Options { conflict_label: label });
+    drop(guard);
+    {
+        let mut cfg = rt.cfg.lock().unwrap();
+        if cfg.refresh_token.as_ref() == Some(&token) {
+            cfg.base = base;
+            rt.save(&cfg);
+        }
+    }
+    match result {
+        Ok(out) => set_drive_status(app, |s| {
+            s.state = "idle".into();
+            s.last_sync = Some(crate::sync::proto::now_ms());
+            s.conflicts = out.conflicts.len();
+            s.message.clear();
+        }),
+        Err(e) if e == google::REVOKED => {
+            // No celular, volta para a conexão direta com o PC (que pode repassar um acesso novo).
+            forget_drive(app, e);
+        }
+        Err(e) => set_drive_status(app, |s| {
+            s.state = if e.starts_with("Sem conexão") { "offline" } else { "error" }.into();
+            s.message = e;
+        }),
+    }
+}
+
+/// Agenda uma sincronização com o Drive (agrupa gravações seguidas).
+pub fn request_drive_sync(app: &AppHandle, delay: Duration) {
+    if app.state::<AppState>().drive.connected() {
+        schedule(app, |s| &s.drive.scheduled, delay, run_drive_sync);
+    }
+}
+
+/// Busca mudanças no Drive periodicamente (no celular, só com o app aberto).
+pub fn start_drive_loop(app: AppHandle) {
+    request_drive_sync(&app, Duration::from_secs(1));
+    std::thread::Builder::new()
+        .name("notex-drive".into())
+        .spawn(move || {
+            loop {
+                std::thread::sleep(DRIVE_POLL);
+                let state = app.state::<AppState>();
+                let active = cfg!(desktop) || state.client.active.load(Ordering::Relaxed);
+                if active && state.drive.connected() {
+                    run_drive_sync(&app);
+                }
+            }
+        })
+        .expect("thread do Google Drive");
+}
+
+#[tauri::command]
+pub fn drive_status(state: State<AppState>) -> DriveStatus {
+    state.drive.status.lock().unwrap().clone()
+}
+
+/// Login no Google pelo navegador (só no PC). Devolve o e-mail da conta.
+#[tauri::command]
+pub async fn drive_connect(app: AppHandle) -> CmdResult<String> {
+    if cfg!(mobile) {
+        return Err("Conecte o Google Drive no NOTEx do PC; o celular pareado recebe o acesso sozinho.".into());
+    }
+    let client = google::client().ok_or("Este build do NOTEx não tem o Google Drive configurado.")?;
+    let opener_app = app.clone();
+    let (token, email) = tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_opener::OpenerExt;
+        let token = google::authorize(&client, |url| {
+            opener_app.opener().open_url(url, None::<&str>).map_err(|e| format!("Não foi possível abrir o navegador: {e}"))
+        })?;
+        let email = GoogleDrive::new(client, token.clone()).user_email()?;
+        Ok::<_, String>((token, email))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    adopt_drive(&app, token, Some(email.clone()));
+    request_drive_sync(&app, Duration::from_millis(50));
+    Ok(email)
+}
+
+/// Desconecta. No PC também revoga o acesso no Google (vale para o celular também).
+#[tauri::command]
+pub fn drive_disconnect(app: AppHandle) {
+    if let Some(token) = forget_drive(&app, String::new()) {
+        if cfg!(desktop) {
+            std::thread::spawn(move || google::revoke(&token));
+        }
+    }
+}
+
+#[tauri::command]
+pub fn drive_sync_now(app: AppHandle) {
+    request_drive_sync(&app, Duration::from_millis(50));
 }
 
 // =====================================================================================
@@ -488,6 +775,9 @@ mod server {
         }
         fn changes(&self) -> std::sync::Arc<Changes> {
             self.app.state::<AppState>().changes.clone()
+        }
+        fn drive_credentials(&self) -> (Option<String>, Option<String>) {
+            self.app.state::<AppState>().drive.credentials()
         }
     }
 

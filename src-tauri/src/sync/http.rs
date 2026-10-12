@@ -51,6 +51,8 @@ pub trait ServerCtx: Host + Send + Sync + 'static {
     fn complete_pair(&self, device_id: &str, device_name: &str, key: KeyBytes) -> Result<(), String>;
     fn touch_device(&self, device_id: &str);
     fn changes(&self) -> Arc<Changes>;
+    /// Refresh token e e-mail do Google Drive conectado no PC, se houver.
+    fn drive_credentials(&self) -> (Option<String>, Option<String>);
 }
 
 /// Liga o servidor HTTP e a descoberta UDP em segundo plano.
@@ -122,6 +124,11 @@ fn serve(ctx: &dyn ServerCtx, mut req: tiny_http::Request) {
             }
         }
         _ if pairing => Response::Error { message: "Pareamento inválido.".into() },
+        Request::DriveCredentials => {
+            ctx.touch_device(&device);
+            let (refresh_token, email) = ctx.drive_credentials();
+            Response::DriveCredentials { refresh_token, email }
+        }
         Request::Wait { since } => {
             ctx.touch_device(&device);
             Response::Changes { counter: ctx.changes().wait(since, Duration::from_millis(WAIT_TIMEOUT_MS)) }
@@ -200,6 +207,9 @@ mod tests {
         fn touch_device(&self, _: &str) {}
         fn changes(&self) -> Arc<Changes> {
             self.changes.clone()
+        }
+        fn drive_credentials(&self) -> (Option<String>, Option<String>) {
+            (None, None)
         }
     }
 

@@ -4,7 +4,9 @@
 // (engine.rs): compara a versão local, a do PC e a da última sincronização de cada arquivo.
 
 pub mod client;
+pub mod drive;
 pub mod engine;
+pub mod google;
 pub mod proto;
 pub mod store;
 
@@ -85,6 +87,6 @@ fn handle_inner(host: &dyn Host, req: Request) -> Result<Response, String> {
             store::rmdir_if_empty(&root_of(host, &notebook)?, &path)?;
             Response::Ok
         }
-        Request::Pair { .. } | Request::Wait { .. } => return Err("Requisição fora de contexto.".into()),
+        Request::Pair { .. } | Request::Wait { .. } | Request::DriveCredentials => return Err("Requisição fora de contexto.".into()),
     })
 }
