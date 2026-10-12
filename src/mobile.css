@@ -1,7 +1,7 @@
 /* Celular (html.mobile): um painel só, gaveta lateral, alvos de toque maiores. */
 
 html.mobile body {
-  font-size: 14px;
+  font-size: 14.7px;
   /* Sem "puxar para atualizar" nem rolagem da página inteira. */
   overscroll-behavior: none;
 }
@@ -13,9 +13,9 @@ html.mobile .toolbar {
   padding-top: max(6px, env(safe-area-inset-top));
 }
 html.mobile .toolbar button {
-  min-width: 38px;
-  height: 38px;
-  font-size: 15px;
+  min-width: 40px;
+  height: 40px;
+  font-size: 15.75px;
 }
 html.mobile .toolbar .spacer {
   display: none;
@@ -65,8 +65,8 @@ html.mobile .icon-btn {
   font-size: 20px;
 }
 html.mobile .node {
-  height: 42px;
-  font-size: 15px;
+  height: 44px;
+  font-size: 15.75px;
 }
 html.mobile .twisty {
   width: 18px;
@@ -79,7 +79,7 @@ html.mobile .node-icon {
 
 /* Abas: mais altas, × sempre visível. */
 html.mobile .tabbar {
-  height: 42px;
+  height: 44px;
   scrollbar-width: none;
 }
 html.mobile .tabbar::-webkit-scrollbar {
@@ -87,12 +87,13 @@ html.mobile .tabbar::-webkit-scrollbar {
 }
 html.mobile .tab {
   max-width: 60vw;
-  padding-left: 14px;
+  padding-left: 15px;
+  font-size: 14.7px;
 }
 html.mobile .tab-close {
-  width: 32px;
-  height: 32px;
-  font-size: 20px;
+  width: 34px;
+  height: 34px;
+  font-size: 21px;
   opacity: 0.7;
 }
 html.mobile .group {
@@ -123,9 +124,12 @@ html.mobile .statusbar .zoom button {
 }
 
 /* Menus e diálogos para toque. */
+html.mobile .context-menu {
+  min-width: 210px;
+}
 html.mobile .menu-item {
-  padding: 12px 14px;
-  font-size: 15px;
+  padding: 13px 15px;
+  font-size: 15.75px;
 }
 html.mobile .menu-item kbd {
   display: none;
