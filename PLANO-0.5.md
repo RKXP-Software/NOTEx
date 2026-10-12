@@ -38,5 +38,17 @@ A fase 5 (glossário) fica em espera.
 ## Ordem proposta (versões)
 
 - **0.4.2:** itens 1, 2, 3, 4, 5, 6 (correções e ajustes visuais).
-- **0.5.0:** itens 7, 8, 9 (notas da versão, portátil, pasta privada).
-- Depois: fase 5 (glossário).
+- **0.5.0:** notas da versão (7), pasta privada (9) e glossário (fase 5). O portátil (8) e a versão na barra (6) já saíram na 0.4.2.
+  Ordem: notas da versão → glossário → pasta privada (a mais delicada, por último).
+
+## Glossário (decidido)
+
+- **Termos:** `**Termo**: definição` ou `Termo:: definição` em qualquer nota `.md/.txt`, mais o botão "Definir termo" com o texto selecionado. Tudo continua em arquivos comuns.
+- **Escopo:** global (um dicionário com todos os cadernos), com filtro por caderno.
+- **Busca em tudo:** painel lateral e `Ctrl+Shift+F`; no celular, ícone 🔍 na gaveta. Ignora acentos e maiúsculas, mostra o trecho destacado e abre a nota na posição do resultado. Meta: < 200 ms com milhares de notas.
+- **Índice:** Rust (`index.rs`), atualizado ao salvar e ao sincronizar.
+
+## Pasta privada (decidido)
+
+- Uma **senha mestra** das pastas privadas, definida uma vez. No celular o PIN/biometria do Android libera a senha guardada no aparelho; no PC digita-se a senha (ou Windows Hello).
+- Arquivos cifrados no disco e no Drive; busca e glossário não indexam o conteúdo de pastas privadas enquanto bloqueadas.
