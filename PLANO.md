@@ -63,9 +63,9 @@ src-tauri/           Núcleo Rust
 |---|---|---|---|
 | 0 | Ambiente: Rust, Tauri CLI, Android SDK/NDK; projeto Tauri criado; git + GitHub | `npm run tauri dev` abre janela; build Android "olá mundo" instala no celular | ✅ |
 | 1 | **Desktop núcleo**: cadernos, nota rápida, abas, grade de painéis, editor WYSIWYG (.md) e texto (.txt), salvamento automático, sessão, tema claro/escuro, instalador | Uso diário possível no Windows; instalador < 15 MB | ✅ (instalador ~2 MB) |
-| 2 | **Android**: mesma interface adaptada (abas no topo, menu de cadernos), armazenamento local dos cadernos | APK instalado, cria/edita notas offline | ✅ (APK ~10 MB) |
+| 2 | **Android**: mesma interface adaptada (abas no topo, menu de cadernos), armazenamento local dos cadernos | APK instalado, cria/edita notas offline | ✅ (APK ~13 MB) |
 | 3 | **Sincronização Wi-Fi**: motor + transporte LAN + pareamento QR + conflitos | Editar no celular aparece no PC e vice-versa; conflito gera cópia | ✅ rede local e NordVPN Meshnet |
-| 4 | **Google Drive**: OAuth + transporte Drive | Sincroniza fora da rede local | — |
+| 4 | **Google Drive**: OAuth + transporte Drive | Sincroniza fora da rede local | ✅ app publicado no Google (páginas em notex-site) |
 | 5 | **Glossário**: busca global + termos definidos | Busca em todos os cadernos em < 200 ms para ~milhares de notas | — |
 
 Cada fase tem testes automatizados (Vitest na interface, `cargo test` no Rust), como no MDR.
@@ -78,4 +78,6 @@ Cada fase tem testes automatizados (Vitest na interface, `cargo test` no Rust), 
 - **Firewall (PC):** as portas 47800/TCP e 47801/UDP precisam de regra de entrada (perfil "Qualquer"), porque as redes do PC estão como Públicas.
 - **Sem Wi-Fi no celular:** a sincronização funciona pelos dados móveis via rede mesh (NordVPN Meshnet, faixa 100.64.0.0/10), incluída no QR code.
 - **Limitações atuais da sincronização:** o celular só sincroniza com o app aberto; arquivos editados no PC por outros programas chegam ao celular na próxima sincronização disparada pelo celular (abrir o app, editar ou "Sincronizar agora").
+- **Google Drive:** PC e celular sincronizam só pelo Drive quando ele está ligado (a cada ~20 s). O login é feito no PC e o celular pareado recebe o acesso pelo canal cifrado.
+- **Instalador do Windows:** modo "somente para mim" ou "todos os usuários" (configuração compartilhada em ProgramData). Mudar de um modo para o outro não migra a configuração automaticamente.
 - **Instalação:** Rust (~1,5 GB) + Android SDK/NDK (~5 GB) + Android Studio (opcional).
