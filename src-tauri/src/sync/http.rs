@@ -269,19 +269,29 @@ mod tests {
     }
 }
 
-/// Endereços IPv4 de rede local deste PC (para o QR code).
+/// Faixa 100.64.0.0/10, usada por redes privadas sobre a internet (NordVPN Meshnet, Tailscale).
+fn is_mesh(ip: &std::net::Ipv4Addr) -> bool {
+    let o = ip.octets();
+    o[0] == 100 && (o[1] & 0b1100_0000) == 64
+}
+
+/// Endereços IPv4 deste PC que o celular pode alcançar (para o QR code): rede local primeiro
+/// (192.168.x.x, depois 10.x e 172.16-31.x) e, por último, redes mesh — com elas o celular
+/// sincroniza mesmo fora do Wi-Fi, pelos dados móveis.
 pub fn local_ipv4() -> Vec<String> {
-    let mut ips: Vec<String> = if_addrs::get_if_addrs()
+    let mut ips: Vec<(u8, String)> = if_addrs::get_if_addrs()
         .unwrap_or_default()
         .into_iter()
         .filter(|i| !i.is_loopback())
         .filter_map(|i| match i.ip() {
-            std::net::IpAddr::V4(v4) if v4.is_private() => Some(v4.to_string()),
+            std::net::IpAddr::V4(v4) if v4.is_private() => {
+                Some((if v4.octets()[..2] == [192, 168] { 0 } else { 1 }, v4.to_string()))
+            }
+            std::net::IpAddr::V4(v4) if is_mesh(&v4) => Some((2, v4.to_string())),
             _ => None,
         })
         .collect();
-    // Redes domésticas comuns primeiro (192.168.x.x), depois 10.x e 172.16-31.x.
-    ips.sort_by_key(|ip| if ip.starts_with("192.168.") { 0 } else { 1 });
+    ips.sort();
     ips.dedup();
-    ips
+    ips.into_iter().map(|(_, ip)| ip).collect()
 }

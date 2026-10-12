@@ -137,7 +137,7 @@ export class SyncUi {
           return
         }
         body.append(
-          el('p', { className: 'muted', textContent: `Este PC (${s.name}) aceita celulares pareados na rede local: ${s.ips.map((ip) => `${ip}:${s.port}`).join(', ') || 'sem rede'}.` })
+          el('p', { className: 'muted', textContent: `Este PC (${s.name}) aceita celulares pareados em: ${s.ips.map((ip) => `${ip}:${s.port}`).join(', ') || 'sem rede'}.` })
         )
         if (justPaired) body.append(el('p', { className: 'sync-ok', textContent: `✓ ${justPaired} pareado! A primeira sincronização começa em instantes.` }))
         if (qr) {
@@ -156,7 +156,7 @@ export class SyncUi {
             code,
             copy,
             el('ol', { className: 'steps' },
-              el('li', { textContent: 'Abra o NOTEx no celular (mesmo Wi-Fi deste PC).' }),
+              el('li', { textContent: 'Abra o NOTEx no celular (no mesmo Wi-Fi deste PC, ou com o NordVPN Meshnet ligado nos dois).' }),
               el('li', { textContent: 'Toque em "⇅ Conectar ao PC" na barra de baixo.' }),
               el('li', { textContent: 'Toque em "Ler QR code" e aponte para este código.' })
             ),
