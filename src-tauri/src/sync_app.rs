@@ -734,6 +734,16 @@ mod server {
                 let _ = crate::textfile::write_atomic(&self.file, &json);
             }
         }
+
+        #[cfg(test)]
+        pub fn device_count(&self) -> usize {
+            self.cfg.lock().unwrap().devices.len()
+        }
+
+        #[cfg(test)]
+        pub fn server_id(&self) -> String {
+            self.cfg.lock().unwrap().server_id.clone()
+        }
     }
 
     impl ServerCtx for AppHost {
@@ -880,6 +890,24 @@ mod server {
         cfg.devices.retain(|d| d.id != id);
         s.save(&cfg);
         s.last_seen.lock().unwrap().remove(&id);
+    }
+}
+
+#[cfg(all(test, desktop))]
+mod server_tests {
+    use super::server::*;
+
+    #[test]
+    fn celulares_pareados_sobrevivem_a_reabrir_o_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("sync-server.json");
+        let json = r#"{ "server_id": "abc", "devices": [ { "id": "c1", "name": "moto g75 5G", "key": "k", "paired_at": 1 } ] }"#;
+        std::fs::write(&file, json).unwrap();
+        let s = ServerState::load(file.clone());
+        assert_eq!(s.device_count(), 1);
+        assert_eq!(s.server_id(), "abc");
+        // O arquivo não é regravado ao abrir.
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), json);
     }
 }
 
