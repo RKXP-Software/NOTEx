@@ -10,7 +10,8 @@ const SEP = '\\'
 const files = new Map<string, { text: string; mtime: number }>()
 const dirs = new Set<string>()
 const state = new Map<string, string>()
-const notebooks = [{ id: 'rapidas', name: 'Rápidas', path: `${ROOT}${SEP}Rápidas` }]
+const notebooks: { id: string; name: string; path: string }[] = [{ id: 'rapidas', name: 'Rápidas', path: `${ROOT}${SEP}Rápidas` }]
+const icons = new Map<string, string>()
 
 const parent = (p: string): string => p.slice(0, p.lastIndexOf(SEP))
 const base = (p: string): string => p.slice(p.lastIndexOf(SEP) + 1)
@@ -55,7 +56,7 @@ function tree(dir: string): unknown[] {
   const kids = new Set<string>()
   for (const p of [...files.keys(), ...dirs]) if (parent(p) === dir && !base(p).startsWith('.')) kids.add(p)
   return [...kids]
-    .map((p) => (dirs.has(p) ? { name: base(p), path: p, isDir: true, children: tree(p) } : { name: base(p), path: p, isDir: false }))
+    .map((p) => (dirs.has(p) ? { name: base(p), path: p, isDir: true, children: tree(p), icon: icons.get(p) } : { name: base(p), path: p, isDir: false }))
     .sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }))
 }
 
@@ -76,11 +77,25 @@ function handle(cmd: string, a: Args): unknown {
   const s = (k: string): string => String(a[k] ?? '')
   switch (cmd) {
     case 'get_notebooks':
-      return notebooks
+      return notebooks.map((n) => ({ ...n, icon: icons.get(n.path) }))
+    case 'get_root':
+    case 'set_root':
+      return { root: ROOT, defaultRoot: ROOT }
+    case 'set_icon':
+      if (a.icon) icons.set(s('path'), s('icon'))
+      else icons.delete(s('path'))
+      return null
+    case 'move_notebook': {
+      const nb = notebooks.find((n) => n.id === s('id'))!
+      const target = unique(s('destParent'), base(nb.path), '')
+      moveAll(nb.path, target)
+      nb.path = target
+      return nb
+    }
     case 'notebooks_root':
       return ROOT
     case 'create_notebook': {
-      const path = unique(ROOT, sanitize(s('name')), '')
+      const path = unique(a.parent ? s('parent') : ROOT, sanitize(s('name')), '')
       mkdirp(path)
       const nb = { id: `nb${Date.now().toString(16)}`, name: s('name'), path }
       notebooks.push(nb)

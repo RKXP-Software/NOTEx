@@ -148,6 +148,80 @@ export async function confirm(title: string, message: string, okLabel = 'OK', da
   return v === true
 }
 
+/** Pergunta com várias opções (uma por linha). Devolve o índice escolhido ou null se cancelado. */
+export async function choose(
+  title: string,
+  message: string,
+  options: { label: string; detail?: string }[]
+): Promise<number | null> {
+  const v = await modal((box, close) => {
+    box.append(Object.assign(document.createElement('h2'), { textContent: title }))
+    if (message) box.append(Object.assign(document.createElement('p'), { textContent: message }))
+    const list = document.createElement('div')
+    list.className = 'choice-list'
+    options.forEach((o, i) => {
+      const b = document.createElement('button')
+      b.className = 'choice' + (i === 0 ? ' primary' : '')
+      b.append(Object.assign(document.createElement('strong'), { textContent: o.label }))
+      if (o.detail) b.append(Object.assign(document.createElement('small'), { textContent: o.detail }))
+      b.addEventListener('click', () => close(i))
+      list.appendChild(b)
+    })
+    box.appendChild(list)
+    buttons(box, [{ label: 'Cancelar', onClick: () => close(null) }])
+  })
+  return typeof v === 'number' ? v : null
+}
+
+/** Ícones sugeridos para pastas e cadernos. */
+export const ICONS = [
+  '📁', '📂', '📓', '📒', '📔', '📕', '📗', '📘', '📙', '📚', '📖', '📝', '✏️', '📌', '📎', '🗂️',
+  '🗃️', '💼', '🏠', '🏢', '🎓', '💡', '⭐', '⚡', '🔥', '❤️', '💙', '💚', '💛', '💜', '✅', '📅',
+  '⏰', '🛒', '💰', '📈', '📊', '🧪', '💻', '📱', '🎮', '🎵', '🎨', '📷', '✈️', '🚗', '🌱', '🍳',
+  '🏋️', '⚽', '🐾', '🔒', '🔑', '⚙️', '🛠️', '🧠', '❓', '❗', '🎯', '🚀', '🌎', '☕'
+]
+
+/**
+ * Seletor de ícone. Devolve o ícone escolhido, '' para voltar ao ícone padrão, ou null se cancelado.
+ */
+export async function pickIcon(title: string, current: string | undefined): Promise<string | null> {
+  const v = await modal((box, close) => {
+    box.classList.add('icon-modal')
+    box.append(Object.assign(document.createElement('h2'), { textContent: title }))
+    const grid = document.createElement('div')
+    grid.className = 'icon-grid'
+    for (const icon of ICONS) {
+      const b = document.createElement('button')
+      b.className = 'icon-choice' + (icon === current ? ' selected' : '')
+      b.textContent = icon
+      b.title = icon
+      b.addEventListener('click', () => close(icon))
+      grid.appendChild(b)
+    }
+    box.appendChild(grid)
+    // Qualquer outro emoji pode ser colado (Win + . abre o painel de emojis do Windows).
+    const row = document.createElement('div')
+    row.className = 'icon-custom'
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.placeholder = 'Outro: cole um emoji (Win + .)'
+    input.maxLength = 8
+    input.value = current && !ICONS.includes(current) ? current : ''
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && input.value.trim()) close(input.value.trim())
+    })
+    row.appendChild(input)
+    box.appendChild(row)
+    buttons(box, [
+      { label: 'Ícone padrão', onClick: () => close('') },
+      { label: 'Cancelar', onClick: () => close(null) },
+      { label: 'Usar', primary: true, onClick: () => close(input.value.trim() || null) }
+    ])
+    queueMicrotask(() => (grid.querySelector('.selected, button') as HTMLElement | null)?.focus())
+  })
+  return typeof v === 'string' ? v : null
+}
+
 let toastTimer: number | undefined
 
 /** Aviso rápido no rodapé (erros e confirmações de ações). */

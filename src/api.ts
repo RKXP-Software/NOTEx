@@ -6,6 +6,12 @@ export interface Notebook {
   id: string
   name: string
   path: string
+  icon?: string
+}
+
+export interface RootSettings {
+  root: string
+  defaultRoot: string
 }
 
 export interface TreeEntry {
@@ -13,6 +19,7 @@ export interface TreeEntry {
   path: string
   isDir: boolean
   children?: TreeEntry[]
+  icon?: string
 }
 
 export interface TextFormat {
@@ -38,7 +45,11 @@ export const QUICK_NOTEBOOK_ID = 'rapidas'
 
 export const api = {
   getNotebooks: () => invoke<Notebook[]>('get_notebooks'),
-  createNotebook: (name: string) => invoke<Notebook>('create_notebook', { name }),
+  createNotebook: (name: string, parent: string | null = null) => invoke<Notebook>('create_notebook', { name, parent }),
+  moveNotebook: (id: string, destParent: string) => invoke<Notebook>('move_notebook', { id, destParent }),
+  getRoot: () => invoke<RootSettings>('get_root'),
+  setRoot: (path: string | null) => invoke<RootSettings>('set_root', { path }),
+  setIcon: (path: string, icon: string | null) => invoke<void>('set_icon', { path, icon }),
   addNotebook: (path: string) => invoke<Notebook>('add_notebook', { path }),
   renameNotebook: (id: string, name: string) => invoke<void>('rename_notebook', { id, name }),
   removeNotebook: (id: string) => invoke<void>('remove_notebook', { id }),

@@ -78,6 +78,24 @@ export function rebase(path: string, from: string, to: string): string {
   return to + path.slice(from.replace(/[\\/]+$/, '').length)
 }
 
+/**
+ * Converte texto puro em Markdown preservando a aparência: quebras de linha simples viram
+ * quebras forçadas ("  \n", senão o Markdown juntaria as linhas) e o recuo no início da linha
+ * vira espaços não separáveis (4 espaços comuns virariam bloco de código).
+ */
+export function txtToMarkdown(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/^[ \t]+/, (ws) => ws.replace(/\t/g, '    ').replace(/ /g, ' ')).replace(/[ \t]+$/, ''))
+    .map((line, i, lines) => {
+      const next = lines[i + 1]
+      // Linha seguida de outra linha com texto (mesmo parágrafo): quebra forçada.
+      return line.trim() !== '' && next !== undefined && next.trim() !== '' ? `${line}  ` : line
+    })
+    .join('\n')
+}
+
 /** Conta palavras (sequências de letras/números, inclusive acentuadas). */
 export function countWords(text: string): number {
   return text.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu)?.length ?? 0

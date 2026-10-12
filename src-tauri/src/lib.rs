@@ -1,6 +1,7 @@
 // Núcleo do NOTEx: comandos chamados pela interface (invoke). Os erros voltam como mensagens
 // em português, prontas para exibir.
 
+mod meta;
 mod notebooks;
 mod textfile;
 
@@ -17,8 +18,8 @@ struct AppState {
     config: Mutex<Config>,
     config_file: PathBuf,
     state_dir: PathBuf,
-    /// Pasta onde ficam os cadernos criados pelo NOTEx.
-    root: PathBuf,
+    /// Pasta padrão de fábrica para novos cadernos (Documentos\NOTEx no desktop).
+    default_root: PathBuf,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -37,6 +38,11 @@ impl AppState {
         }
         Ok(out)
     }
+
+    /// Pasta onde novos cadernos são criados: a escolhida pelo usuário ou a de fábrica.
+    fn root(&self, cfg: &Config) -> PathBuf {
+        cfg.root.clone().unwrap_or_else(|| self.default_root.clone())
+    }
 }
 
 fn mtime_ms(path: &Path) -> Option<u64> {
@@ -46,9 +52,28 @@ fn mtime_ms(path: &Path) -> Option<u64> {
 
 // ---- Cadernos ----
 
+/// Caderno como a interface o vê: configuração + ícone (dos metadados do caderno).
+#[derive(Serialize)]
+struct NotebookInfo {
+    id: String,
+    name: String,
+    path: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icon: Option<String>,
+}
+
+fn info(nb: &Notebook) -> NotebookInfo {
+    NotebookInfo {
+        id: nb.id.clone(),
+        name: nb.name.clone(),
+        path: nb.path.clone(),
+        icon: meta::load(&nb.path).icons.get("").cloned(),
+    }
+}
+
 #[tauri::command]
-fn get_notebooks(state: State<AppState>) -> CmdResult<Vec<Notebook>> {
-    state.with_config(|c| Ok(c.notebooks.clone()), false)
+fn get_notebooks(state: State<AppState>) -> CmdResult<Vec<NotebookInfo>> {
+    state.with_config(|c| Ok(c.notebooks.iter().map(info).collect()), false)
 }
 
 fn new_notebook_id() -> String {
@@ -57,27 +82,39 @@ fn new_notebook_id() -> String {
 }
 
 /// Recusa cadernos aninhados (um dentro do outro), que confundiriam a validação e a sincronização.
-fn check_not_nested(cfg: &Config, path: &Path) -> CmdResult<()> {
-    if cfg.notebooks.iter().any(|n| notebooks::is_within(&n.path, path) || notebooks::is_within(path, &n.path)) {
+/// `except` ignora um caderno (ao mover ele mesmo).
+fn check_not_nested(cfg: &Config, path: &Path, except: Option<&str>) -> CmdResult<()> {
+    let clash = cfg.notebooks.iter().filter(|n| Some(n.id.as_str()) != except).any(|n| {
+        notebooks::is_within(&n.path, path) || notebooks::is_within(path, &n.path)
+    });
+    if clash {
         return Err("Essa pasta já faz parte de um caderno (ou contém um).".into());
     }
     Ok(())
 }
 
+/// Cria um caderno novo numa subpasta `name` de `parent` (ou da pasta padrão).
 #[tauri::command]
-fn create_notebook(state: State<AppState>, name: String) -> CmdResult<Notebook> {
+fn create_notebook(state: State<AppState>, name: String, parent: Option<PathBuf>) -> CmdResult<NotebookInfo> {
     let stem = notebooks::sanitize_name(&name);
     if stem.is_empty() {
         return Err("Nome de caderno inválido.".into());
     }
+    if let Some(p) = &parent {
+        if !p.is_absolute() || !p.is_dir() {
+            return Err("Pasta de destino inválida.".into());
+        }
+    }
     state.with_config(
         |cfg| {
-            let path = notebooks::unique_path(&state.root, &stem, "", None);
-            check_not_nested(cfg, &path)?;
+            let base = parent.clone().unwrap_or_else(|| state.root(cfg));
+            fs::create_dir_all(&base).map_err(|e| format!("Não foi possível criar a pasta: {e}"))?;
+            let path = notebooks::unique_path(&base, &stem, "", None);
+            check_not_nested(cfg, &path, None)?;
             fs::create_dir_all(&path).map_err(|e| format!("Não foi possível criar a pasta: {e}"))?;
             let nb = Notebook { id: new_notebook_id(), name: name.trim().to_string(), path };
             cfg.notebooks.push(nb.clone());
-            Ok(nb)
+            Ok(info(&nb))
         },
         true,
     )
@@ -85,20 +122,86 @@ fn create_notebook(state: State<AppState>, name: String) -> CmdResult<Notebook> 
 
 /// Registra uma pasta existente (escolhida pelo usuário) como caderno.
 #[tauri::command]
-fn add_notebook(state: State<AppState>, path: PathBuf) -> CmdResult<Notebook> {
+fn add_notebook(state: State<AppState>, path: PathBuf) -> CmdResult<NotebookInfo> {
     if !path.is_absolute() || !path.is_dir() {
         return Err("Pasta inválida.".into());
     }
     state.with_config(
         |cfg| {
-            check_not_nested(cfg, &path)?;
+            check_not_nested(cfg, &path, None)?;
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Caderno".into());
             let nb = Notebook { id: new_notebook_id(), name, path };
             cfg.notebooks.push(nb.clone());
-            Ok(nb)
+            Ok(info(&nb))
         },
         true,
     )
+}
+
+/// Move a pasta inteira do caderno para dentro de `dest_parent` (pode ser outro disco).
+#[tauri::command]
+fn move_notebook(state: State<AppState>, id: String, dest_parent: PathBuf) -> CmdResult<NotebookInfo> {
+    if !dest_parent.is_absolute() || !dest_parent.is_dir() {
+        return Err("Pasta de destino inválida.".into());
+    }
+    state.with_config(
+        |cfg| {
+            let old = cfg.notebook(&id)?.path.clone();
+            if notebooks::is_within(&old, &dest_parent) {
+                return Err("Não é possível mover o caderno para dentro dele mesmo.".into());
+            }
+            if old.parent().is_some_and(|p| notebooks::same_path(p, &dest_parent)) {
+                return Ok(info(cfg.notebook(&id)?));
+            }
+            let name = old.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Caderno".into());
+            let target = notebooks::unique_path(&dest_parent, &name, "", None);
+            check_not_nested(cfg, &target, Some(&id))?;
+            notebooks::move_path(&old, &target)?;
+            let nb = cfg.notebooks.iter_mut().find(|n| n.id == id).ok_or("Caderno não encontrado.")?;
+            nb.path = target;
+            Ok(info(nb))
+        },
+        true,
+    )
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RootSettings {
+    root: PathBuf,
+    default_root: PathBuf,
+}
+
+#[tauri::command]
+fn get_root(state: State<AppState>) -> CmdResult<RootSettings> {
+    state.with_config(|c| Ok(RootSettings { root: state.root(c), default_root: state.default_root.clone() }), false)
+}
+
+/// Define a pasta padrão para novos cadernos (None volta para a de fábrica).
+#[tauri::command]
+fn set_root(state: State<AppState>, path: Option<PathBuf>) -> CmdResult<RootSettings> {
+    if let Some(p) = &path {
+        if !p.is_absolute() || !p.is_dir() {
+            return Err("Pasta inválida.".into());
+        }
+    }
+    state.with_config(
+        |c| {
+            c.root = path.filter(|p| !notebooks::same_path(p, &state.default_root));
+            Ok(RootSettings { root: state.root(c), default_root: state.default_root.clone() })
+        },
+        true,
+    )
+}
+
+/// Define (ou remove, com None) o ícone de uma pasta ou do próprio caderno.
+#[tauri::command]
+fn set_icon(state: State<AppState>, path: PathBuf, icon: Option<String>) -> CmdResult<()> {
+    let root = state.with_config(|c| Ok(c.check_in_notebook(&path)?.path.clone()), false)?;
+    if !path.is_dir() {
+        return Err("Só pastas e cadernos têm ícone.".into());
+    }
+    meta::set_icon(&root, &path, icon.as_deref())
 }
 
 #[tauri::command]
@@ -131,12 +234,13 @@ fn remove_notebook(state: State<AppState>, id: String) -> CmdResult<()> {
         true,
     )
 }
-
 #[tauri::command]
 fn list_tree(state: State<AppState>, id: String) -> CmdResult<Vec<TreeEntry>> {
     let root = state.with_config(|c| Ok(c.notebook(&id)?.path.clone()), false)?;
     fs::create_dir_all(&root).map_err(|e| format!("Pasta do caderno inacessível: {e}"))?;
-    notebooks::list_tree(&root).map_err(|e| format!("Não foi possível listar o caderno: {e}"))
+    let mut tree = notebooks::list_tree(&root).map_err(|e| format!("Não foi possível listar o caderno: {e}"))?;
+    meta::annotate(&mut tree, &root, &meta::load(&root));
+    Ok(tree)
 }
 
 // ---- Notas e pastas ----
@@ -155,42 +259,48 @@ fn create_folder(state: State<AppState>, parent: PathBuf, name: String) -> CmdRe
 
 #[tauri::command]
 fn rename_entry(state: State<AppState>, path: PathBuf, name: String) -> CmdResult<PathBuf> {
-    state.with_config(
+    let root = state.with_config(
         |c| {
             let nb = c.check_in_notebook(&path)?;
             if notebooks::same_path(&nb.path, &path) {
                 return Err("Use \"Renomear caderno\" para a pasta raiz.".into());
             }
-            Ok(())
+            Ok(nb.path.clone())
         },
         false,
     )?;
-    notebooks::rename_entry(&path, &name)
+    let target = notebooks::rename_entry(&path, &name)?;
+    // Ícones não são essenciais: falha ao atualizá-los não desfaz a renomeação.
+    let _ = meta::transfer(&root, &path, Some(&root), &target);
+    Ok(target)
 }
 
 #[tauri::command]
 fn move_entry(state: State<AppState>, path: PathBuf, dest_dir: PathBuf) -> CmdResult<PathBuf> {
-    state.with_config(
+    let (src_root, dst_root) = state.with_config(
         |c| {
             let nb = c.check_in_notebook(&path)?;
             if notebooks::same_path(&nb.path, &path) {
                 return Err("Não é possível mover a pasta raiz do caderno.".into());
             }
-            c.check_in_notebook(&dest_dir)?;
-            Ok(())
+            Ok((nb.path.clone(), c.check_in_notebook(&dest_dir)?.path.clone()))
         },
         false,
     )?;
     if !dest_dir.is_dir() {
         return Err("Destino inválido.".into());
     }
-    notebooks::move_entry(&path, &dest_dir)
+    let target = notebooks::move_entry(&path, &dest_dir)?;
+    let _ = meta::transfer(&src_root, &path, Some(&dst_root), &target);
+    Ok(target)
 }
 
 #[tauri::command]
 fn trash_entry(state: State<AppState>, path: PathBuf) -> CmdResult<PathBuf> {
     let root = state.with_config(|c| Ok(c.check_in_notebook(&path)?.path.clone()), false)?;
-    notebooks::trash_entry(&root, &path)
+    let target = notebooks::trash_entry(&root, &path)?;
+    let _ = meta::transfer(&root, &path, None, &target);
+    Ok(target)
 }
 
 #[tauri::command]
@@ -254,8 +364,8 @@ fn open_external(state: State<AppState>, path: PathBuf) -> CmdResult<()> {
 }
 
 #[tauri::command]
-fn notebooks_root(state: State<AppState>) -> PathBuf {
-    state.root.clone()
+fn notebooks_root(state: State<AppState>) -> CmdResult<PathBuf> {
+    state.with_config(|c| Ok(state.root(c)), false)
 }
 
 // ---- Estado da interface (sessão, preferências) ----
@@ -292,8 +402,13 @@ fn init_state(app: &AppHandle) -> Result<AppState, Box<dyn std::error::Error>> {
 
     let config_file = config_dir.join("config.json");
     let mut cfg: Config = fs::read(&config_file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-    let state = AppState { config: Mutex::new(Config::default()), config_file, state_dir: config_dir, root };
-    if cfg.ensure_quick(&state.root)? || !state.config_file.exists() {
+    let state = AppState { config: Mutex::new(Config::default()), config_file, state_dir: config_dir, default_root: root };
+    // Pasta padrão escolhida que sumiu (pendrive, disco removido): volta para a de fábrica.
+    if cfg.root.as_ref().is_some_and(|r| !r.is_dir()) {
+        cfg.root = None;
+    }
+    let quick_root = state.root(&cfg);
+    if cfg.ensure_quick(&quick_root)? || !state.config_file.exists() {
         state.save(&cfg)?;
     }
     *state.config.lock().unwrap() = cfg;
@@ -316,6 +431,10 @@ pub fn run() {
             add_notebook,
             rename_notebook,
             remove_notebook,
+            move_notebook,
+            get_root,
+            set_root,
+            set_icon,
             list_tree,
             create_note,
             create_folder,

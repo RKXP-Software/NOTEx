@@ -18,6 +18,11 @@ export interface SidebarActions {
   addExistingFolder(): void
   renameNotebook(nb: Notebook): void
   removeNotebook(nb: Notebook): void
+  moveNotebook(nb: Notebook): void
+  chooseRoot(): void
+  /** Escolher ícone de pasta (`isNotebook` = raiz do caderno). */
+  chooseIcon(path: string, current: string | undefined, isNotebook: boolean): void
+  convert(path: string): void
   reveal(path: string): void
   /** Estado de expansão mudou (salvar na sessão). */
   expandedChanged(): void
@@ -48,7 +53,9 @@ export class Sidebar {
       const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
       showMenu(r.left, r.bottom + 2, [
         { label: 'Novo caderno…', action: () => actions.newNotebook() },
-        { label: 'Adicionar pasta existente…', action: () => actions.addExistingFolder() }
+        { label: 'Adicionar pasta existente…', action: () => actions.addExistingFolder() },
+        'sep',
+        { label: 'Pasta padrão dos cadernos…', action: () => actions.chooseRoot() }
       ])
     })
     head.appendChild(add)
@@ -109,7 +116,7 @@ export class Sidebar {
     const row = this.row({
       label: nb.name,
       depth: 0,
-      icon: nb.id === QUICK_NOTEBOOK_ID ? '⚡' : '▤',
+      icon: nb.icon ?? (nb.id === QUICK_NOTEBOOK_ID ? '⚡' : '📓'),
       twisty: open ? '▾' : '▸',
       cls: 'notebook',
       title: nb.path
@@ -143,6 +150,8 @@ export class Sidebar {
       { label: 'Nova pasta…', action: () => this.actions.newFolder(nb.path) },
       'sep',
       { label: 'Renomear caderno…', action: () => this.actions.renameNotebook(nb) },
+      { label: 'Escolher ícone…', action: () => this.actions.chooseIcon(nb.path, nb.icon, true) },
+      { label: 'Mover caderno para outra pasta…', action: () => this.actions.moveNotebook(nb) },
       { label: 'Abrir pasta no Explorer', action: () => this.actions.reveal(nb.path) },
       { label: 'Remover da lista', disabled: quick, action: () => this.actions.removeNotebook(nb) }
     ]
@@ -161,6 +170,10 @@ export class Sidebar {
           { label: 'Abrir ao lado', action: () => this.actions.open(e.path, { side: true }) },
           'sep',
           { label: 'Renomear…', shortcut: 'F2', action: () => this.actions.rename(e.path) },
+          {
+            label: e.name.toLowerCase().endsWith('.txt') ? 'Converter para .md' : 'Converter para .txt',
+            action: () => this.actions.convert(e.path)
+          },
           { label: 'Mostrar no Explorer', action: () => this.actions.reveal(e.path) },
           { label: 'Apagar', danger: true, action: () => this.actions.trash(e.path, false) }
         ])
@@ -174,7 +187,7 @@ export class Sidebar {
     }
     const open = this.expanded.has(e.path)
     const wrap = document.createElement('div')
-    const row = this.row({ label: e.name, depth, icon: open ? '📂' : '📁', twisty: open ? '▾' : '▸', cls: 'folder', title: e.path })
+    const row = this.row({ label: e.name, depth, icon: e.icon ?? (open ? '📂' : '📁'), twisty: open ? '▾' : '▸', cls: 'folder', title: e.path })
     row.dataset.path = e.path
     row.draggable = true
     row.addEventListener('click', () => this.toggle(e.path))
@@ -186,6 +199,7 @@ export class Sidebar {
         { label: 'Nova pasta…', action: () => this.actions.newFolder(e.path) },
         'sep',
         { label: 'Renomear…', action: () => this.actions.rename(e.path) },
+        { label: 'Escolher ícone…', action: () => this.actions.chooseIcon(e.path, e.icon, false) },
         { label: 'Mostrar no Explorer', action: () => this.actions.reveal(e.path) },
         { label: 'Apagar pasta', danger: true, action: () => this.actions.trash(e.path, true) }
       ])

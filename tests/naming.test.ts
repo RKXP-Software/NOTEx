@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countWords, docKind, firstLineDone, isWithin, quickNoteTitle, rebase, samePath, stem, titleFromText } from '../src/naming'
+import { countWords, docKind, firstLineDone, isWithin, quickNoteTitle, rebase, samePath, stem, titleFromText, txtToMarkdown } from '../src/naming'
 
 describe('notas rápidas', () => {
   it('título provisório com data e hora', () => {
@@ -47,6 +47,20 @@ describe('caminhos', () => {
     expect(docKind('a.markdown')).toBe('md')
     expect(docKind('a.txt')).toBe('txt')
     expect(stem('C:\\x\\Minha nota.md')).toBe('Minha nota')
+  })
+})
+
+describe('conversão .txt → .md', () => {
+  it('preserva quebras de linha e parágrafos', () => {
+    expect(txtToMarkdown('linha 1\nlinha 2\n\nparágrafo 2\n')).toBe('linha 1  \nlinha 2\n\nparágrafo 2\n')
+  })
+
+  it('recuo vira espaços não separáveis (não vira bloco de código)', () => {
+    expect(txtToMarkdown('    recuado\n\titem')).toBe('    recuado  \n    item')
+  })
+
+  it('normaliza CRLF e remove espaços no fim da linha', () => {
+    expect(txtToMarkdown('a   \r\nb')).toBe('a  \nb')
   })
 })
 

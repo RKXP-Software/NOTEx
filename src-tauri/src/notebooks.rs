@@ -29,6 +29,9 @@ pub struct Config {
     /// Arquivos fora dos cadernos abertos pelo usuário (Abrir arquivo...).
     #[serde(default)]
     pub external: Vec<PathBuf>,
+    /// Pasta padrão escolhida pelo usuário para novos cadernos (None = Documentos\NOTEx).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<PathBuf>,
 }
 
 impl Config {
@@ -166,6 +169,9 @@ pub struct TreeEntry {
     pub is_dir: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<TreeEntry>>,
+    /// Ícone escolhido para a pasta (metadados do caderno).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 /// Árvore de pastas e notas (.md/.txt), sem itens ocultos (iniciados por "."). Pastas primeiro,
@@ -182,9 +188,9 @@ pub fn list_tree(dir: &Path) -> std::io::Result<Vec<TreeEntry>> {
         let ft = item.file_type()?;
         if ft.is_dir() {
             let children = list_tree(&path).unwrap_or_default();
-            entries.push(TreeEntry { name, path, is_dir: true, children: Some(children) });
+            entries.push(TreeEntry { name, path, is_dir: true, children: Some(children), icon: None });
         } else if ft.is_file() && is_note_file(&path) {
-            entries.push(TreeEntry { name, path, is_dir: false, children: None });
+            entries.push(TreeEntry { name, path, is_dir: false, children: None, icon: None });
         }
     }
     entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
@@ -271,7 +277,7 @@ pub fn move_entry(path: &Path, dest_dir: &Path) -> Result<PathBuf, String> {
 }
 
 /// rename, com cópia+remoção como alternativa entre volumes diferentes.
-fn move_path(from: &Path, to: &Path) -> Result<(), String> {
+pub fn move_path(from: &Path, to: &Path) -> Result<(), String> {
     if fs::rename(from, to).is_ok() {
         return Ok(());
     }

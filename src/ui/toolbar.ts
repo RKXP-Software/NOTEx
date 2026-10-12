@@ -2,6 +2,7 @@
 
 import type { Editor } from '@tiptap/core'
 import { prompt } from './dialogs'
+import { indent } from '../editors/visual-editor'
 
 export interface ToolbarActions {
   toggleSidebar(): void
@@ -36,8 +37,8 @@ const FORMAT: (FormatButton | 'sep')[] = [
   { id: 'ul', label: '•≡', title: 'Lista (Ctrl+Shift+8)', run: (e) => e.chain().focus().toggleBulletList().run(), active: (e) => e.isActive('bulletList') },
   { id: 'ol', label: '1≡', title: 'Lista numerada (Ctrl+Shift+7)', run: (e) => e.chain().focus().toggleOrderedList().run(), active: (e) => e.isActive('orderedList') },
   { id: 'task', label: '☑', title: 'Lista de tarefas (Ctrl+Shift+9)', run: (e) => e.chain().focus().toggleTaskList().run(), active: (e) => e.isActive('taskList') },
-  { id: 'indent', label: '→', title: 'Aumentar recuo da lista (Tab)', run: (e) => indent(e, true) },
-  { id: 'outdent', label: '←', title: 'Diminuir recuo da lista (Shift+Tab)', run: (e) => indent(e, false) },
+  { id: 'indent', label: '→', title: 'Aumentar recuo (Tab)', run: (e) => indent(e, true) },
+  { id: 'outdent', label: '←', title: 'Diminuir recuo (Shift+Tab)', run: (e) => indent(e, false) },
   'sep',
   { id: 'quote', label: '❝', title: 'Citação (Ctrl+Shift+B)', run: (e) => e.chain().focus().toggleBlockquote().run(), active: (e) => e.isActive('blockquote') },
   { id: 'codeblock', label: '{ }', title: 'Bloco de código (Ctrl+Alt+C)', run: (e) => e.chain().focus().toggleCodeBlock().run(), active: (e) => e.isActive('codeBlock') },
@@ -47,11 +48,6 @@ const FORMAT: (FormatButton | 'sep')[] = [
   { id: 'clear', label: 'T̸', title: 'Limpar formatação', run: (e) => e.chain().focus().unsetAllMarks().clearNodes().run() }
 ]
 
-function indent(e: Editor, more: boolean): void {
-  const type = e.isActive('taskItem') ? 'taskItem' : 'listItem'
-  if (more) e.chain().focus().sinkListItem(type).run()
-  else e.chain().focus().liftListItem(type).run()
-}
 
 export async function editLink(e: Editor): Promise<void> {
   const current = (e.getAttributes('link').href as string | undefined) ?? ''

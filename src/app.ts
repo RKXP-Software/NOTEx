@@ -20,17 +20,17 @@ import {
   type LayoutNode,
   type Side
 } from './layout'
-import { baseName, countWords, firstLineDone, isWithin, quickNoteTitle, rebase, samePath, stem, titleFromText } from './naming'
+import { baseName, countWords, docKind, firstLineDone, isWithin, quickNoteTitle, rebase, samePath, stem, titleFromText, txtToMarkdown } from './naming'
 import { Theme, parseThemePref, type ThemePref } from './theme'
-import { confirm, prompt, showMenu, toast } from './ui/dialogs'
+import { choose, confirm, pickIcon, prompt, showMenu, toast } from './ui/dialogs'
 import { Sidebar } from './ui/sidebar'
 import { editLink, Toolbar } from './ui/toolbar'
 import { Workspace } from './ui/workspace'
 import { VisualEditor } from './editors/visual-editor'
 
 const SESSION_KEY = 'session'
-const MIN_FONT = 11
-const MAX_FONT = 28
+const BASE_FONT_PX = 15
+const ZOOM_STEPS = [50, 60, 70, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300]
 
 interface Session {
   version: 1
@@ -40,7 +40,7 @@ interface Session {
   raw: string[]
   autoName: string[]
   theme: ThemePref
-  fontSize: number
+  zoom: number
 }
 
 export class App {
@@ -51,7 +51,7 @@ export class App {
   private focused = 'g1'
   private sidebarVisible = true
   private sidebarWidth = 260
-  private fontSize = 15
+  private zoom = 100
   private sessionTimer: number | undefined
   private statusQueued = false
   private restoring = false
@@ -100,6 +100,10 @@ export class App {
       addExistingFolder: () => void this.addExistingFolder(),
       renameNotebook: (nb) => void this.renameNotebook(nb),
       removeNotebook: (nb) => void this.removeNotebook(nb),
+      moveNotebook: (nb) => void this.moveNotebook(nb),
+      chooseRoot: () => void this.chooseRoot(),
+      chooseIcon: (path, current, isNotebook) => void this.chooseIcon(path, current, isNotebook),
+      convert: (path) => void this.convertNote(path),
       reveal: (path) => void revealItemInDir(path).catch((e) => toast(errorMessage(e), 'error')),
       expandedChanged: () => this.scheduleSession()
     })
@@ -151,7 +155,7 @@ export class App {
     await this.loadNotebooks()
     const session = await this.loadSession()
     this.theme.set(session?.theme ?? 'system')
-    this.setFontSize(session?.fontSize ?? 15)
+    this.setZoom(session?.zoom ?? 100)
     if (session) {
       this.sidebarVisible = session.sidebar.visible
       this.sidebarWidth = session.sidebar.width
@@ -166,6 +170,7 @@ export class App {
     this.activeDoc()?.editor.focus()
 
     this.bindSidebarResizer()
+    this.bindZoom()
     document.addEventListener('keydown', (e) => this.onKey(e), true)
     window.addEventListener('focus', () => void this.checkExternalChanges())
     // Ao fechar: grava tudo antes (o Tauri espera o handler terminar).
@@ -211,7 +216,7 @@ export class App {
         raw: Array.isArray(s.raw) ? s.raw : [],
         autoName: Array.isArray(s.autoName) ? s.autoName : [],
         theme: parseThemePref(s.theme),
-        fontSize: Number(s.fontSize) || 15
+        zoom: Number(s.zoom) || 100
       }
     } catch {
       return null
@@ -255,7 +260,7 @@ export class App {
       raw: docs.filter((d) => d.raw).map((d) => d.path),
       autoName: docs.filter((d) => d.autoName).map((d) => d.path),
       theme: this.theme.pref,
-      fontSize: this.fontSize
+      zoom: this.zoom
     }
   }
 
@@ -528,10 +533,22 @@ export class App {
   }
 
   private async newNotebook(): Promise<void> {
-    const name = await prompt('Nome do novo caderno', '', 'Criar')
+    const name = await prompt('Nome do novo caderno', '', 'Continuar')
     if (name === null) return
     try {
-      const nb = await api.createNotebook(name)
+      const { root } = await api.getRoot()
+      const where = await choose('Onde salvar o caderno?', `"${name}" será uma pasta com as suas notas.`, [
+        { label: 'Na pasta padrão', detail: root },
+        { label: 'Escolher outra pasta…', detail: 'O caderno é criado como subpasta da pasta escolhida.' }
+      ])
+      if (where === null) return
+      let parent: string | null = null
+      if (where === 1) {
+        const dir = await openDialog({ directory: true, title: 'Escolha onde criar o caderno' })
+        if (typeof dir !== 'string') return
+        parent = dir
+      }
+      const nb = await api.createNotebook(name, parent)
       this.notebooks.push(nb)
       this.sidebar.expanded.add(`nb:${nb.id}`)
       await this.refreshTrees()
@@ -582,6 +599,100 @@ export class App {
       await api.removeNotebook(nb.id)
       this.notebooks = this.notebooks.filter((n) => n.id !== nb.id)
       await this.refreshTrees()
+    } catch (e) {
+      toast(errorMessage(e), 'error')
+    }
+  }
+
+  private async reloadNotebooks(): Promise<void> {
+    this.notebooks = await api.getNotebooks().catch(() => this.notebooks)
+    await this.refreshTrees()
+  }
+
+  private async moveNotebook(nb: Notebook): Promise<void> {
+    const dir = await openDialog({ directory: true, title: `Mover "${nb.name}" para dentro de…` })
+    if (typeof dir !== 'string') return
+    try {
+      await this.settle(nb.path)
+      const moved = await api.moveNotebook(nb.id, dir)
+      if (samePath(moved.path, nb.path)) return
+      this.applyMove(nb.path, moved.path)
+      await this.reloadNotebooks()
+      this.scheduleSession()
+      toast(`Caderno movido para ${moved.path}`)
+    } catch (e) {
+      toast(errorMessage(e), 'error')
+    }
+  }
+
+  /** Pasta onde novos cadernos são criados (padrão: Documentos\NOTEx). */
+  private async chooseRoot(): Promise<void> {
+    try {
+      const { root, defaultRoot } = await api.getRoot()
+      const custom = !samePath(root, defaultRoot)
+      const options = [{ label: 'Escolher outra pasta…', detail: `Atual: ${root}` }]
+      if (custom) options.push({ label: 'Voltar à pasta de fábrica', detail: defaultRoot })
+      const pick = await choose(
+        'Pasta padrão dos cadernos',
+        'Novos cadernos serão criados aqui. Cadernos existentes não mudam de lugar (use "Mover caderno para outra pasta…").',
+        options
+      )
+      if (pick === null) return
+      let next: string | null = null
+      if (pick === 0) {
+        const dir = await openDialog({ directory: true, title: 'Pasta padrão dos cadernos', defaultPath: root })
+        if (typeof dir !== 'string') return
+        next = dir
+      }
+      const r = await api.setRoot(next)
+      toast(`Pasta padrão: ${r.root}`)
+    } catch (e) {
+      toast(errorMessage(e), 'error')
+    }
+  }
+
+  private async chooseIcon(path: string, current: string | undefined, isNotebook: boolean): Promise<void> {
+    const icon = await pickIcon(isNotebook ? 'Ícone do caderno' : 'Ícone da pasta', current)
+    if (icon === null) return
+    try {
+      await api.setIcon(path, icon === '' ? null : icon)
+      await this.reloadNotebooks()
+    } catch (e) {
+      toast(errorMessage(e), 'error')
+    }
+  }
+
+  /** Converte .md ↔ .txt (troca a extensão; .txt → .md preserva quebras de linha e recuos). */
+  private async convertNote(path: string): Promise<void> {
+    const to = docKind(path) === 'md' ? 'txt' : 'md'
+    const ok = await confirm(
+      `Converter para .${to}`,
+      to === 'txt'
+        ? 'A nota vira texto puro. A formatação fica escrita como Markdown (ex.: **negrito**, - item) e pode ser convertida de volta.'
+        : 'A nota passa a ter edição visual. Quebras de linha e recuos são preservados.',
+      'Converter'
+    )
+    if (!ok) return
+    try {
+      await this.settle(path)
+      const doc = this.findDoc(path)
+      const current = doc ? { text: doc.text(), format: doc.format } : await api.readNote(path)
+      const text = to === 'md' ? txtToMarkdown(current.text) : current.text
+      const newPath = await api.renameEntry(path, `${stem(path)}.${to}`)
+      if (text !== current.text || doc) await api.writeNote(newPath, text, current.format)
+      if (doc) {
+        // Recria o documento com o editor do novo tipo, no mesmo lugar da grade.
+        const raw = doc.raw
+        this.docs.delete(doc.path)
+        doc.destroy()
+        const fresh = await Doc.open(newPath, { dark: this.theme.dark, raw: raw && to === 'md' }, this.docHooks)
+        this.docs.set(newPath, fresh)
+        this.layout = renameTab(this.layout, path, newPath)
+      }
+      await this.refreshTrees()
+      this.render()
+      this.findDoc(newPath)?.editor.focus()
+      toast(`Convertido: ${baseName(newPath)}`)
     } catch (e) {
       toast(errorMessage(e), 'error')
     }
@@ -644,6 +755,11 @@ export class App {
           this.render()
           this.scheduleSession()
         }
+      },
+      {
+        label: doc?.kind === 'txt' ? 'Converter para .md' : 'Converter para .txt',
+        disabled: !nb,
+        action: () => void this.convertNote(tab)
       },
       { label: 'Mostrar na barra lateral', disabled: !nb, action: () => nb && this.revealInSidebar(nb, tab) },
       { label: 'Mostrar no Explorer', action: () => void revealItemInDir(tab).catch(() => undefined) }
@@ -716,9 +832,36 @@ export class App {
     })
   }
 
-  private setFontSize(px: number): void {
-    this.fontSize = Math.min(MAX_FONT, Math.max(MIN_FONT, Math.round(px)))
-    document.documentElement.style.setProperty('--editor-font-size', `${this.fontSize}px`)
+  /** Zoom do texto das notas (50% a 300%), aplicado ao tamanho da fonte dos editores. */
+  private setZoom(percent: number): void {
+    this.zoom = Math.min(ZOOM_STEPS.at(-1)!, Math.max(ZOOM_STEPS[0]!, Math.round(percent)))
+    document.documentElement.style.setProperty('--editor-font-size', `${(BASE_FONT_PX * this.zoom) / 100}px`)
+    const label = document.getElementById('zoom-reset')
+    if (label) label.textContent = `${this.zoom}%`
+  }
+
+  /** Próximo nível de zoom para cima (+1) ou para baixo (-1); 0 volta a 100%. */
+  zoomStep(dir: 1 | -1 | 0): void {
+    if (dir === 0) this.setZoom(100)
+    else if (dir > 0) this.setZoom(ZOOM_STEPS.find((z) => z > this.zoom) ?? this.zoom)
+    else this.setZoom([...ZOOM_STEPS].reverse().find((z) => z < this.zoom) ?? this.zoom)
+    this.scheduleSession()
+  }
+
+  private bindZoom(): void {
+    document.getElementById('zoom-in')!.addEventListener('click', () => this.zoomStep(1))
+    document.getElementById('zoom-out')!.addEventListener('click', () => this.zoomStep(-1))
+    document.getElementById('zoom-reset')!.addEventListener('click', () => this.zoomStep(0))
+    // Ctrl + roda do mouse sobre as notas.
+    this.el.workspace.addEventListener(
+      'wheel',
+      (e) => {
+        if (!e.ctrlKey) return
+        e.preventDefault()
+        this.zoomStep(e.deltaY < 0 ? 1 : -1)
+      },
+      { passive: false }
+    )
   }
 
   private cycleTab(dir: 1 | -1): void {
@@ -761,10 +904,10 @@ export class App {
     if (ctrl && e.shiftKey && key === 'e') return run(() => this.toggleSidebar())
     if (ctrl && e.shiftKey && key === 't') return run(() => (this.theme.toggle(), this.scheduleSession()))
     if (ctrl && e.shiftKey && key === 'm') return run(() => this.toggleRaw())
-    if (ctrl && !e.shiftKey && (key === '=' || key === '+'))
-      return run(() => (this.setFontSize(this.fontSize + 1), this.scheduleSession()))
-    if (ctrl && !e.shiftKey && key === '-') return run(() => (this.setFontSize(this.fontSize - 1), this.scheduleSession()))
-    if (ctrl && !e.shiftKey && key === '0') return run(() => (this.setFontSize(15), this.scheduleSession()))
+    // Zoom: "+" no teclado ABNT exige Shift, então Shift é aceito; numérico também.
+    if (ctrl && !e.altKey && (key === '+' || key === '=' || e.code === 'NumpadAdd')) return run(() => this.zoomStep(1))
+    if (ctrl && !e.altKey && (key === '-' || key === '_' || e.code === 'NumpadSubtract')) return run(() => this.zoomStep(-1))
+    if (ctrl && !e.shiftKey && !e.altKey && (key === '0' || e.code === 'Numpad0')) return run(() => this.zoomStep(0))
     if (key === 'f2' && !ctrl) {
       const doc = this.activeDoc()
       if (doc && this.notebooks.some((n) => isWithin(n.path, doc.path))) return run(() => void this.renamePath(doc.path))
