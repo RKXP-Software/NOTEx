@@ -179,10 +179,6 @@ fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
-pub fn read_file(path: &Path) -> std::io::Result<Decoded> {
-    Ok(decode(&fs::read(path)?))
-}
-
 pub fn write_file(path: &Path, text: &str, format: &TextFormat) -> Result<(), String> {
     let data = encode(text, format)?;
     write_atomic(path, &data).map_err(|e| format!("Não foi possível salvar {}: {e}", path.display()))

@@ -168,7 +168,7 @@ pub fn valid_rel_path(path: &str) -> bool {
     if path.is_empty() || path.len() > 1024 || path.contains('\\') || path.contains(':') || path.contains('\0') {
         return false;
     }
-    if path == crate::meta::META_FILE {
+    if path == crate::meta::META_FILE || path == crate::vault::HEADER_FILE {
         return true;
     }
     path.split('/').all(|part| !part.is_empty() && part != "." && part != ".." && !part.starts_with('.'))
@@ -177,6 +177,7 @@ pub fn valid_rel_path(path: &str) -> bool {
 /// Arquivos que entram na sincronização: notas (.md/.txt/.markdown) e o `.notex.json` da raiz.
 pub fn is_synced_file(rel: &str) -> bool {
     rel == crate::meta::META_FILE
+        || rel == crate::vault::HEADER_FILE
         || std::path::Path::new(rel).extension().and_then(|e| e.to_str()).is_some_and(|e| {
             crate::notebooks::NOTE_EXTENSIONS.contains(&e.to_lowercase().as_str())
         })

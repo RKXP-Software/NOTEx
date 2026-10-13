@@ -13,6 +13,7 @@ const dirs = new Set<string>()
 const state = new Map<string, string>()
 const notebooks: { id: string; name: string; path: string }[] = [{ id: 'rapidas', name: 'Rápidas', path: `${ROOT}${SEP}Rápidas` }]
 const icons = new Map<string, string>()
+let vaultOpen = false
 let pairedMock = false
 let driveMock = false
 
@@ -112,6 +113,28 @@ function handle(cmd: string, a: Args): unknown {
     case 'remove_notebook':
       notebooks.splice(notebooks.findIndex((n) => n.id === s('id')), 1)
       return null
+    case 'vault_status':
+      return { unlocked: vaultOpen, remembered: false }
+    case 'vault_unlock':
+      if (s('password') !== 'senha1234') throw new Error('Senha incorreta.')
+      vaultOpen = true
+      for (const n of notebooks as { private?: boolean; locked?: boolean }[]) if (n.private) n.locked = false
+      return { unlocked: true, remembered: false }
+    case 'vault_lock':
+      vaultOpen = false
+      for (const n of notebooks as { private?: boolean; locked?: boolean }[]) if (n.private) n.locked = true
+      return { unlocked: false, remembered: false }
+    case 'vault_make_private': {
+      const n = notebooks.find((x) => x.id === s('id')) as { private?: boolean; locked?: boolean } | undefined
+      if (n) Object.assign(n, { private: true, locked: !vaultOpen && false })
+      vaultOpen = true
+      return null
+    }
+    case 'vault_make_public': {
+      const n = notebooks.find((x) => x.id === s('id')) as { private?: boolean; locked?: boolean } | undefined
+      if (n) Object.assign(n, { private: false, locked: false })
+      return null
+    }
     case 'search_notes': {
       const q = fold(s('query'))
       const only = a.notebook as string | null

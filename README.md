@@ -13,6 +13,8 @@ Site, política de privacidade e termos: <https://rkxp-software.github.io/notex-
 - **Abas em grade:** arraste uma aba para a borda de um painel para dividir em colunas e linhas; os divisores se ajustam arrastando (duplo clique iguala os lados).
 - **Editor visual** para `.md` (negrito, itálico, títulos, listas, tarefas, citação, código, links, tabelas, imagens) que grava Markdown; `Ctrl+Shift+M` alterna para o Markdown cru. Os `.txt` abrem como texto puro. Dá para converter `.md` ↔ `.txt` pelo menu da nota.
 - **Salvamento automático** e sessão restaurada (abas, grade, zoom, tema). A codificação (UTF-8 ou Windows-1252), o BOM e o fim de linha dos arquivos são preservados.
+- **Busca e glossário:** `Ctrl+Shift+F` busca em todas as notas de todos os cadernos (sem acento nem maiúsculas) e abre a nota no trecho encontrado. `Ctrl+Shift+G` abre o glossário: os termos definidos nas notas (`**Termo**: definição` ou `Termo:: definição`), com filtro por caderno; `Ctrl+Shift+D` define um termo (vai para o `Glossário.md` do caderno).
+- **Cadernos privados:** "Tornar caderno privado…" cifra as notas (Argon2id + ChaCha20-Poly1305) com uma senha mestra, no disco, no Drive e na sincronização. No celular exige também o PIN/padrão/digital do aparelho e tranca ao sair do app. Os nomes das notas não são cifrados, só o conteúdo, e **sem a senha não há recuperação**.
 - **Zoom** do texto (50% a 300%), tema claro e escuro.
 - **Escolha onde guardar os cadernos:** pasta padrão configurável, mover um caderno para outra pasta ou adicionar uma pasta existente.
 
@@ -108,4 +110,4 @@ PLANO.md             Planejamento e situação das fases
 
 ## Situação
 
-Fases 0 a 4 concluídas (ambiente, desktop, Android, sincronização direta e Google Drive). Versão 0.4.2: correções do Drive e do celular. Próxima: glossário (busca em todos os cadernos e termos com definição). Detalhes em [PLANO.md](PLANO.md).
+Fases 0 a 5 concluídas (ambiente, desktop, Android, sincronização direta, Google Drive e glossário/busca). Versão 0.5.0: busca global, glossário, cadernos privados, novidades da versão e instalador que atualiza por cima. Detalhes em [PLANO.md](PLANO.md).

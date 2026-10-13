@@ -33,7 +33,7 @@ fn walk(dir: &Path, prefix: &str, m: &mut Manifest) {
             }
             m.dirs.insert(rel.clone());
             walk(&item.path(), &rel, m);
-        } else if ft.is_file() && (rel == META_FILE || (!name.starts_with('.') && is_synced_file(&rel))) {
+        } else if ft.is_file() && (rel == META_FILE || rel == crate::vault::HEADER_FILE || (!name.starts_with('.') && is_synced_file(&rel))) {
             if let Ok(data) = fs::read(item.path()) {
                 m.files.insert(rel, hash_bytes(&data));
             }

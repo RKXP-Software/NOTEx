@@ -1,6 +1,7 @@
 # Novidades do NOTEx
 
 ## 0.5.0
+- Cadernos privados: no menu do caderno, "Tornar caderno privado…". As notas ficam cifradas no disco, no Google Drive e nos outros aparelhos; só abrem com a senha mestra (e, no celular, com o PIN, padrão ou digital do aparelho). No celular o caderno tranca ao sair do app. Sem a senha mestra não há como recuperar o conteúdo.
 - Instalador do Windows: se o NOTEx já estiver instalado, atualiza por cima sozinho, sem pedir para desinstalar a versão antiga.
 - Busca em todas as notas (Ctrl+Shift+F, ou o ícone 🔍 na barra lateral): ignora acentos e maiúsculas, mostra o trecho e abre a nota já no ponto encontrado.
 - Glossário (Ctrl+Shift+G, ou 📖): lista os termos definidos nas suas notas, com filtro por caderno. Defina um termo escrevendo `**Termo**: definição` ou `Termo:: definição` em qualquer nota, ou pelo botão 📖 da barra de funções (Ctrl+Shift+D).

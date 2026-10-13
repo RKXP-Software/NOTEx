@@ -16,7 +16,12 @@ export function showNovidades(version: string): Promise<void> {
       const sec = document.createElement('section')
       sec.append(Object.assign(document.createElement('h3'), { textContent: `Versão ${r.version}`, className: r.version === version ? 'current' : '' }))
       const ul = document.createElement('ul')
-      for (const it of r.items) ul.append(Object.assign(document.createElement('li'), { textContent: it }))
+      for (const it of r.items) {
+        const li = document.createElement('li')
+        // `trecho` entre crases vira código.
+        it.split('`').forEach((part, i) => li.append(i % 2 ? Object.assign(document.createElement('code'), { textContent: part }) : part))
+        ul.append(li)
+      }
       sec.append(ul)
       body.append(sec)
     }

@@ -32,5 +32,9 @@
 -dontwarn com.google.mlkit.**
 -dontwarn com.google.android.gms.**
 
+# ---- NOTEx: PIN/digital do aparelho (plugin biometric, AndroidX Biometric) ----
+-keep class app.tauri.biometric.** { *; }
+-keep class androidx.biometric.** { *; }
+
 # Linhas nos rastros de erro (ajuda a diagnosticar falhas no celular).
 -keepattributes SourceFile,LineNumberTable

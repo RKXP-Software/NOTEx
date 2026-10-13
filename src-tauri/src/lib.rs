@@ -7,6 +7,7 @@ mod notebooks;
 mod sync;
 mod sync_app;
 mod textfile;
+mod vault;
 
 use notebooks::{Config, Notebook, TreeEntry};
 use serde::Serialize;
@@ -18,6 +19,8 @@ use tauri::{AppHandle, Manager, State};
 use textfile::{Encoding, TextFormat};
 
 struct AppState {
+    /// Senha mestra e chaves dos cadernos privados (só na memória).
+    vault: Mutex<vault::Vault>,
     /// Texto das notas em memória, para a busca global e o glossário.
     index: Mutex<index::Index>,
     config: Mutex<Config>,
@@ -88,20 +91,32 @@ struct NotebookInfo {
     path: PathBuf,
     #[serde(skip_serializing_if = "Option::is_none")]
     icon: Option<String>,
+    /// Caderno privado (conteúdo cifrado).
+    private: bool,
+    /// Privado e ainda trancado neste aparelho.
+    locked: bool,
 }
 
 fn info(nb: &Notebook) -> NotebookInfo {
+    let private = vault::is_private(&nb.path);
     NotebookInfo {
         id: nb.id.clone(),
         name: nb.name.clone(),
         path: nb.path.clone(),
         icon: meta::load(&nb.path).icons.get("").cloned(),
+        private,
+        locked: private,
     }
 }
 
 #[tauri::command]
 fn get_notebooks(state: State<AppState>) -> CmdResult<Vec<NotebookInfo>> {
-    state.with_config(|c| Ok(c.notebooks.iter().map(info).collect()), false)
+    let mut list: Vec<NotebookInfo> = state.with_config(|c| Ok(c.notebooks.iter().map(info).collect()), false)?;
+    let mut v = state.vault.lock().map_err(|_| "Estado interno inválido.".to_string())?;
+    for n in list.iter_mut().filter(|n| n.private) {
+        n.locked = v.key_for(&n.id, &n.path).is_none();
+    }
+    Ok(list)
 }
 
 fn new_notebook_id() -> String {
@@ -321,20 +336,203 @@ fn list_tree(state: State<AppState>, id: String) -> CmdResult<Vec<TreeEntry>> {
     Ok(tree)
 }
 
+// ---- Cadernos privados ----
+
+/// Erro de leitura/gravação em caderno privado trancado (a interface pede a senha).
+const LOCKED: &str = "BLOQUEADO";
+
+fn vault_guard(state: &AppState) -> CmdResult<std::sync::MutexGuard<'_, vault::Vault>> {
+    state.vault.lock().map_err(|_| "Estado interno inválido.".to_string())
+}
+
+/// (id, raiz) do caderno privado que contém `path`, se houver.
+fn private_notebook(state: &AppState, path: &Path) -> Option<(String, PathBuf)> {
+    state
+        .with_config(|c| Ok(c.notebook_of(path).map(|n| (n.id.clone(), n.path.clone()))), false)
+        .ok()
+        .flatten()
+        .filter(|(_, root)| vault::is_private(root))
+}
+
+/// Chave da nota: Ok(None) = caderno comum; Err(LOCKED) = privado e trancado.
+fn note_key(state: &AppState, path: &Path) -> CmdResult<Option<vault::Key>> {
+    let Some((id, root)) = private_notebook(state, path) else { return Ok(None) };
+    vault_guard(state)?.key_for(&id, &root).map(Some).ok_or_else(|| LOCKED.to_string())
+}
+
+fn read_decoded(state: &AppState, path: &Path) -> CmdResult<textfile::Decoded> {
+    let bytes = fs::read(path).map_err(|e| format!("Não foi possível abrir {}: {e}", path.display()))?;
+    match (note_key(state, path)?, vault::is_encrypted(&bytes)) {
+        (Some(key), true) => Ok(textfile::decode(&vault::decrypt(&key, &bytes)?)),
+        (None, true) => Err("Esta nota é de um caderno privado e não pode ser aberta aqui.".into()),
+        _ => Ok(textfile::decode(&bytes)),
+    }
+}
+
+fn write_text(state: &AppState, path: &Path, text: &str, format: &TextFormat) -> CmdResult<()> {
+    let Some(key) = note_key(state, path)? else {
+        return textfile::write_file(path, text, format);
+    };
+    let data = vault::encrypt(&key, &textfile::encode(text, format)?);
+    textfile::write_atomic(path, &data).map_err(|e| format!("Não foi possível salvar {}: {e}", path.display()))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VaultStatus {
+    /// Há senha mestra na sessão (cadernos privados abertos).
+    unlocked: bool,
+    /// Este aparelho guarda a senha (só no celular, atrás da autenticação do aparelho).
+    remembered: bool,
+}
+
+fn remembered_file(state: &AppState) -> PathBuf {
+    state.state_dir.join("vault.pw")
+}
+
+fn vault_status_of(state: &AppState) -> CmdResult<VaultStatus> {
+    Ok(VaultStatus { unlocked: vault_guard(state)?.is_unlocked(), remembered: remembered_file(state).is_file() })
+}
+
+fn private_roots(state: &AppState) -> CmdResult<Vec<(String, PathBuf)>> {
+    state.with_config(
+        |c| Ok(c.notebooks.iter().filter(|n| vault::is_private(&n.path)).map(|n| (n.id.clone(), n.path.clone())).collect()),
+        false,
+    )
+}
+
+fn clear_index(state: &AppState) {
+    if let Ok(mut idx) = state.index.lock() {
+        idx.clear();
+    }
+}
+
+#[tauri::command]
+fn vault_status(state: State<AppState>) -> CmdResult<VaultStatus> {
+    vault_status_of(&state)
+}
+
+/// Abre os cadernos privados com a senha mestra. Erro se nenhum caderno privado aceitar a senha.
+#[tauri::command]
+fn vault_unlock(state: State<AppState>, password: String, remember: Option<bool>) -> CmdResult<VaultStatus> {
+    let roots = private_roots(&state)?;
+    if roots.is_empty() {
+        return Err("Não há cadernos privados neste aparelho.".into());
+    }
+    let mut opened = 0;
+    {
+        let mut v = vault_guard(&state)?;
+        for (id, root) in &roots {
+            if let Some(key) = vault::open(root, &password) {
+                v.remember_key(id, key);
+                opened += 1;
+            }
+        }
+        if opened == 0 {
+            return Err("Senha incorreta.".into());
+        }
+        v.set_password(password.clone());
+    }
+    if remember == Some(true) {
+        textfile::write_atomic(&remembered_file(&state), password.as_bytes())
+            .map_err(|e| format!("Não foi possível guardar a senha: {e}"))?;
+    }
+    vault_status_of(&state)
+}
+
+/// Abre com a senha guardada neste aparelho (a interface exige antes a autenticação do aparelho).
+#[tauri::command]
+fn vault_unlock_remembered(state: State<AppState>) -> CmdResult<VaultStatus> {
+    let password = fs::read_to_string(remembered_file(&state)).map_err(|_| "Nenhuma senha guardada neste aparelho.".to_string())?;
+    vault_unlock(state, password, Some(false))
+}
+
+#[tauri::command]
+fn vault_lock(state: State<AppState>) -> CmdResult<VaultStatus> {
+    vault_guard(&state)?.lock();
+    clear_index(&state);
+    vault_status_of(&state)
+}
+
+/// Esquece a senha guardada neste aparelho.
+#[tauri::command]
+fn vault_forget(state: State<AppState>) -> CmdResult<VaultStatus> {
+    let _ = fs::remove_file(remembered_file(&state));
+    vault_status_of(&state)
+}
+
+/// Torna o caderno privado: cifra as notas. Com outros cadernos privados, a senha tem de ser a mesma.
+#[tauri::command]
+fn vault_make_private(app: AppHandle, state: State<AppState>, id: String, password: String) -> CmdResult<()> {
+    if password.chars().count() < 6 {
+        return Err("Use uma senha com pelo menos 6 caracteres.".into());
+    }
+    let root = state.with_config(|c| Ok(c.notebook(&id)?.path.clone()), false)?;
+    if vault::is_private(&root) {
+        return Err("O caderno já é privado.".into());
+    }
+    let others: Vec<_> = private_roots(&state)?.into_iter().filter(|(i, _)| *i != id).collect();
+    if let Some((_, other)) = others.first() {
+        if vault::open(other, &password).is_none() {
+            return Err("Use a mesma senha mestra dos outros cadernos privados.".into());
+        }
+    }
+    let key = vault::create(&root, &password)?;
+    if let Err(e) = vault::encrypt_all(&root, &key) {
+        // Desfaz: decifra de volta o que já foi cifrado e remove o cabeçalho.
+        let _ = vault::decrypt_all(&root, &key);
+        return Err(e);
+    }
+    {
+        let mut v = vault_guard(&state)?;
+        v.remember_key(&id, key);
+        if !v.is_unlocked() {
+            v.set_password(password);
+        }
+    }
+    clear_index(&state);
+    touched(&app);
+    Ok(())
+}
+
+/// Volta o caderno a ser comum (decifra as notas). Exige o caderno aberto.
+#[tauri::command]
+fn vault_make_public(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<()> {
+    let root = state.with_config(|c| Ok(c.notebook(&id)?.path.clone()), false)?;
+    if !vault::is_private(&root) {
+        return Ok(());
+    }
+    let key = vault_guard(&state)?.key_for(&id, &root).ok_or_else(|| LOCKED.to_string())?;
+    vault::decrypt_all(&root, &key)?;
+    vault_guard(&state)?.forget_key(&id);
+    clear_index(&state);
+    touched(&app);
+    Ok(())
+}
+
 // ---- Busca e glossário ----
 
 fn notebook_refs(state: &AppState, only: Option<&str>) -> CmdResult<Vec<index::NotebookRef>> {
-    state.with_config(
+    let list: Vec<(String, String, PathBuf)> = state.with_config(
         |cfg| {
             Ok(cfg
                 .notebooks
                 .iter()
                 .filter(|n| only.is_none_or(|id| id == n.id))
-                .map(|n| index::NotebookRef { id: n.id.clone(), name: n.name.clone(), path: n.path.clone() })
+                .map(|n| (n.id.clone(), n.name.clone(), n.path.clone()))
                 .collect())
         },
         false,
-    )
+    )?;
+    let mut v = vault_guard(state)?;
+    Ok(list
+        .into_iter()
+        .map(|(id, name, path)| {
+            let private = vault::is_private(&path);
+            let key = if private { v.key_for(&id, &path) } else { None };
+            index::NotebookRef { id, name, path, private, key }
+        })
+        .collect())
 }
 
 /// Busca o texto (sem acento nem maiúsculas) nas notas de todos os cadernos, ou só de um.
@@ -370,7 +568,7 @@ fn define_term(app: AppHandle, state: State<AppState>, notebook: String, term: S
     fs::create_dir_all(&root).map_err(|e| format!("Pasta do caderno inacessível: {e}"))?;
     let path = root.join(GLOSSARY_FILE);
     let line = format!("**{term}**: {definition}");
-    let (text, format) = match textfile::read_file(&path) {
+    let (text, format) = match read_decoded(&state, &path) {
         Ok(d) => {
             let mut t = d.text;
             if !t.is_empty() && !t.ends_with('\n') {
@@ -385,7 +583,7 @@ fn define_term(app: AppHandle, state: State<AppState>, notebook: String, term: S
             TextFormat { encoding: Encoding::Utf8, bom: false, eol: textfile::Eol::Lf },
         ),
     };
-    textfile::write_file(&path, &text, &format)?;
+    write_text(&state, &path, &text, &format)?;
     touched(&app);
     Ok(path)
 }
@@ -395,6 +593,7 @@ fn define_term(app: AppHandle, state: State<AppState>, notebook: String, term: S
 #[tauri::command]
 fn create_note(app: AppHandle, state: State<AppState>, dir: PathBuf, title: String, ext: String) -> CmdResult<PathBuf> {
     state.with_config(|c| c.check_in_notebook(&dir).map(|_| ()), false)?;
+    note_key(&state, &dir)?;
     let path = notebooks::create_note(&dir, &title, &ext)?;
     touched(&app);
     Ok(path)
@@ -442,6 +641,10 @@ fn move_entry(app: AppHandle, state: State<AppState>, path: PathBuf, dest_dir: P
     if !dest_dir.is_dir() {
         return Err("Destino inválido.".into());
     }
+    if vault::is_private(&src_root) != vault::is_private(&dst_root) {
+        return Err("Não é possível mover notas entre um caderno privado e um comum.".into());
+    }
+    note_key(&state, &path)?;
     let target = notebooks::move_entry(&path, &dest_dir)?;
     let _ = meta::transfer(&src_root, &path, Some(&dst_root), &target);
     touched(&app);
@@ -475,7 +678,7 @@ struct NoteContent {
 #[tauri::command]
 fn read_note(state: State<AppState>, path: PathBuf) -> CmdResult<NoteContent> {
     state.with_config(|c| c.check_allowed(&path), false)?;
-    let d = textfile::read_file(&path).map_err(|e| format!("Não foi possível abrir {}: {e}", path.display()))?;
+    let d = read_decoded(&state, &path)?;
     Ok(NoteContent { text: d.text, format: d.format, mtime: mtime_ms(&path) })
 }
 
@@ -511,7 +714,7 @@ fn write_note(
     if textfile::find_unencodable(&text, format.encoding).is_some() {
         format = TextFormat { encoding: Encoding::Utf8, bom: false, ..format };
     }
-    textfile::write_file(&path, &text, &format)?;
+    write_text(&state, &path, &text, &format)?;
     touched(&app);
     Ok(WriteResult { format, mtime: mtime_ms(&path) })
 }
@@ -646,6 +849,7 @@ fn init_state(app: &AppHandle) -> Result<AppState, Box<dyn std::error::Error>> {
     }
     let state = AppState {
         index: Mutex::new(index::Index::default()),
+        vault: Mutex::new(vault::Vault::default()),
         config: Mutex::new(Config::default()),
         config_file,
         client: sync_app::ClientRuntime::load(config_dir.join("sync-client.json")),
@@ -711,7 +915,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init());
     #[cfg(mobile)]
-    let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
+    let builder = builder.plugin(tauri_plugin_barcode_scanner::init()).plugin(tauri_plugin_biometric::init());
     builder
         .setup(|app| {
             let state = init_state(app.handle())?;
@@ -735,6 +939,13 @@ pub fn run() {
             set_root,
             set_icon,
             list_tree,
+            vault_status,
+            vault_unlock,
+            vault_unlock_remembered,
+            vault_lock,
+            vault_forget,
+            vault_make_private,
+            vault_make_public,
             search_notes,
             list_terms,
             define_term,

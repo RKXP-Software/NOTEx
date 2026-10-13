@@ -496,6 +496,31 @@ mod tests {
     }
 
     #[test]
+    fn caderno_privado_sincroniza_cifrado_e_abre_com_a_mesma_senha() {
+        let (pc, phone) = (Device::new(), Device::new());
+        let (mut bpc, mut bphone) = (SyncBase::default(), SyncBase::default());
+        let mut drive = DriveRemote::new(FakeDrive::default());
+        pc.create_notebook("cofre", "Cofre").unwrap();
+        pc.put("cofre", "segredo.md", "o tesouro está no sótão");
+        let key = crate::vault::create(&pc.root("cofre"), "senha-mestra").unwrap();
+        crate::vault::encrypt_all(&pc.root("cofre"), &key).unwrap();
+        sync(&pc, &mut drive, &mut bpc);
+
+        // No Drive só há bytes cifrados: nada de texto legível.
+        let stored: Vec<u8> = drive.api.files.iter().flat_map(|(_, data, _)| data.clone()).collect();
+        assert!(!stored.windows(7).any(|w| w == "tesouro".as_bytes()));
+        assert!(drive.api.names().contains(&crate::vault::HEADER_FILE.to_string()));
+
+        sync(&phone, &mut drive, &mut bphone);
+        assert!(crate::vault::is_private(&phone.root("cofre")));
+        let raw = fs::read(phone.root("cofre").join("segredo.md")).unwrap();
+        assert!(crate::vault::is_encrypted(&raw));
+        assert!(crate::vault::open(&phone.root("cofre"), "outra-senha").is_none());
+        let pkey = crate::vault::open(&phone.root("cofre"), "senha-mestra").expect("mesma senha abre no celular");
+        assert_eq!(crate::vault::decrypt(&pkey, &raw).unwrap(), "o tesouro está no sótão".as_bytes());
+    }
+
+    #[test]
     fn sincronizacao_sem_mudancas_nao_regrava() {
         let pc = Device::new();
         let mut base = SyncBase::default();

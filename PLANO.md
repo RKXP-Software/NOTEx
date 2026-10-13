@@ -66,7 +66,7 @@ src-tauri/           Núcleo Rust
 | 2 | **Android**: mesma interface adaptada (abas no topo, menu de cadernos), armazenamento local dos cadernos | APK instalado, cria/edita notas offline | ✅ (APK ~13 MB) |
 | 3 | **Sincronização Wi-Fi**: motor + transporte LAN + pareamento QR + conflitos | Editar no celular aparece no PC e vice-versa; conflito gera cópia | ✅ rede local e NordVPN Meshnet |
 | 4 | **Google Drive**: OAuth + transporte Drive | Sincroniza fora da rede local | ✅ app publicado no Google (páginas em notex-site) |
-| 5 | **Glossário**: busca global + termos definidos | Busca em todos os cadernos em < 200 ms para ~milhares de notas | — |
+| 5 | **Glossário**: busca global + termos definidos | Busca em todos os cadernos em < 200 ms para ~milhares de notas | ✅ (0.5.0) |
 
 Cada fase tem testes automatizados (Vitest na interface, `cargo test` no Rust), como no MDR.
 

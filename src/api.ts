@@ -7,6 +7,17 @@ export interface Notebook {
   name: string
   path: string
   icon?: string
+  /** Caderno privado: o conteúdo das notas fica cifrado. */
+  private?: boolean
+  /** Privado e ainda trancado neste aparelho. */
+  locked?: boolean
+}
+
+export interface VaultStatus {
+  /** Há senha mestra na sessão (cadernos privados abertos). */
+  unlocked: boolean
+  /** Este aparelho guarda a senha (só no celular). */
+  remembered: boolean
 }
 
 export interface RootSettings {
@@ -76,6 +87,13 @@ export const api = {
   addNotebook: (path: string) => invoke<Notebook>('add_notebook', { path }),
   renameNotebook: (id: string, name: string) => invoke<Notebook>('rename_notebook', { id, name }),
   removeNotebook: (id: string, deleteFiles = false) => invoke<void>('remove_notebook', { id, deleteFiles }),
+  vaultStatus: () => invoke<VaultStatus>('vault_status'),
+  vaultUnlock: (password: string, remember = false) => invoke<VaultStatus>('vault_unlock', { password, remember }),
+  vaultUnlockRemembered: () => invoke<VaultStatus>('vault_unlock_remembered'),
+  vaultLock: () => invoke<VaultStatus>('vault_lock'),
+  vaultForget: () => invoke<VaultStatus>('vault_forget'),
+  vaultMakePrivate: (id: string, password: string) => invoke<void>('vault_make_private', { id, password }),
+  vaultMakePublic: (id: string) => invoke<void>('vault_make_public', { id }),
   searchNotes: (query: string, notebook: string | null = null) => invoke<Hit[]>('search_notes', { query, notebook }),
   listTerms: () => invoke<Term[]>('list_terms'),
   defineTerm: (notebook: string, term: string, definition: string) => invoke<string>('define_term', { notebook, term, definition }),
@@ -99,6 +117,8 @@ export const api = {
 
 /** Erro de writeNote: o arquivo mudou no disco (sincronização ou outro programa). */
 export const CONFLICT = 'CONFLITO'
+/** Erro de leitura/gravação em caderno privado trancado. */
+export const LOCKED = 'BLOQUEADO'
 
 // ---- Sincronização ----
 

@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "mobile",
-  "description": "Permissões só do celular (leitura do QR code de pareamento)",
+  "description": "Permissões só do celular (leitura do QR code de pareamento e autenticação do aparelho)",
   "windows": ["main"],
   "platforms": ["android", "iOS"],
-  "permissions": ["barcode-scanner:default"]
+  "permissions": ["barcode-scanner:default", "biometric:default"]
 }

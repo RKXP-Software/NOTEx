@@ -321,6 +321,8 @@ fn sync_notebook(
                 (None, Some(_)) => ctx.download(p)?,
                 (Some(_), None) => ctx.upload(p, None, bh)?,
                 (Some(_), Some(rh)) if p == META_FILE => ctx.merge_meta(rh)?,
+                // Cabeçalho do cofre editado nos dois lados: vale o do PC (uma cópia de conflito seria inválida).
+                (Some(_), Some(_)) if p == crate::vault::HEADER_FILE => ctx.download(p)?,
                 (Some(_), Some(_)) => ctx.conflict_copy(p, &taken, &opts.conflict_label)?,
                 (None, None) => {}
             }

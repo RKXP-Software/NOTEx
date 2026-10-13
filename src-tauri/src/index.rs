@@ -24,6 +24,9 @@ pub struct NotebookRef {
     pub id: String,
     pub name: String,
     pub path: PathBuf,
+    /// Caderno privado: só entra no índice com a chave (as notas são decifradas na memória).
+    pub private: bool,
+    pub key: Option<crate::vault::Key>,
 }
 
 struct Entry {
@@ -93,6 +96,17 @@ fn find_chars(hay: &[char], needle: &[char]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
 
+/// Lê e decodifica a nota (decifrando-a, se o caderno for privado).
+fn read_text(nb: &NotebookRef, path: &Path) -> Option<textfile::Decoded> {
+    let bytes = fs::read(path).ok()?;
+    let bytes = match (nb.key, crate::vault::is_encrypted(&bytes)) {
+        (Some(key), true) => crate::vault::decrypt(&key, &bytes).ok()?,
+        (None, true) => return None,
+        _ => bytes,
+    };
+    Some(textfile::decode(&bytes))
+}
+
 fn rel_of(root: &Path, path: &Path) -> String {
     path.strip_prefix(root).unwrap_or(path).to_string_lossy().replace('\\', "/")
 }
@@ -118,6 +132,12 @@ fn collect_notes(dir: &Path, out: &mut Vec<(PathBuf, fs::Metadata)>) {
 }
 
 impl Index {
+    /// Esquece tudo (ao trancar os cadernos privados, para não deixar texto decifrado na memória).
+    pub fn clear(&mut self) {
+        self.files.clear();
+        self.listing = None;
+    }
+
     /// Esquece a última varredura (algo foi salvo ou sincronizado): a próxima busca relê a lista.
     pub fn invalidate(&mut self) {
         self.listing = None;
@@ -140,6 +160,9 @@ impl Index {
         let mut listed = Vec::new();
         let mut seen = HashSet::new();
         for (i, nb) in nbs.iter().enumerate() {
+            if nb.private && nb.key.is_none() {
+                continue;
+            }
             let mut paths = Vec::new();
             collect_notes(&nb.path, &mut paths);
             for (p, meta) in paths {
@@ -149,7 +172,7 @@ impl Index {
                 let stamp = (meta.modified().unwrap_or(SystemTime::UNIX_EPOCH), meta.len());
                 let fresh = self.files.get(&p).is_some_and(|e| e.stamp == stamp);
                 if !fresh {
-                    let Ok(d) = textfile::read_file(&p) else { continue };
+                    let Some(d) = read_text(nb, &p) else { continue };
                     let lines: Vec<String> = d.text.lines().map(str::to_string).collect();
                     let folded = lines.iter().map(|l| fold(l)).collect();
                     self.files.insert(p.clone(), Entry { stamp, lines, folded });
@@ -284,7 +307,7 @@ mod tests {
     use super::*;
 
     fn nb(dir: &Path, id: &str, name: &str) -> NotebookRef {
-        NotebookRef { id: id.into(), name: name.into(), path: dir.join(id) }
+        NotebookRef { id: id.into(), name: name.into(), path: dir.join(id), private: false, key: None }
     }
 
     fn write(dir: &Path, id: &str, rel: &str, text: &str) {
@@ -358,6 +381,26 @@ mod tests {
         let names: Vec<_> = terms.iter().map(|t| t.term.as_str()).collect();
         assert_eq!(names, ["Água", "Zebra"]);
         assert_eq!((terms[1].line, terms[1].notebook_name.as_str()), (2, "A"));
+    }
+
+    #[test]
+    fn caderno_privado_so_entra_no_indice_com_a_chave() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("p");
+        fs::create_dir_all(&root).unwrap();
+        let key = crate::vault::create(&root, "senha").unwrap();
+        fs::write(root.join("n.md"), crate::vault::encrypt(&key, "**Segredo**: tesouro enterrado".as_bytes())).unwrap();
+        let mut nbs = vec![NotebookRef { id: "p".into(), name: "P".into(), path: root, private: true, key: None }];
+        let mut idx = Index::default();
+        assert!(idx.search(&nbs, "tesouro", None).is_empty(), "trancado: nada aparece");
+        assert!(idx.terms(&nbs).is_empty());
+        nbs[0].key = Some(key);
+        idx.invalidate();
+        assert_eq!(idx.search(&nbs, "tesouro", None).len(), 1);
+        assert_eq!(idx.terms(&nbs).len(), 1);
+        nbs[0].key = None;
+        idx.clear();
+        assert!(idx.search(&nbs, "tesouro", None).is_empty());
     }
 
     #[test]

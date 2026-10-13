@@ -161,6 +161,67 @@ export async function prompt(title: string, initial = '', okLabel = 'OK'): Promi
   return typeof v === 'string' ? v : null
 }
 
+export interface PasswordResult {
+  password: string
+  remember: boolean
+}
+
+/**
+ * Pede uma senha (campo oculto). `confirm`: pede de novo e exige 6+ caracteres iguais (senha nova).
+ * `remember`: mostra "Lembrar neste aparelho". Devolve null se cancelado.
+ */
+export async function promptPassword(
+  title: string,
+  opts: { message?: string; confirm?: boolean; remember?: boolean; okLabel?: string } = {}
+): Promise<PasswordResult | null> {
+  const v = await modal((box, close) => {
+    box.append(Object.assign(document.createElement('h2'), { textContent: title }))
+    if (opts.message) box.append(Object.assign(document.createElement('p'), { textContent: opts.message }))
+    const field = (placeholder: string): HTMLInputElement => {
+      const i = document.createElement('input')
+      i.type = 'password'
+      i.placeholder = placeholder
+      i.autocomplete = 'off'
+      i.spellcheck = false
+      box.appendChild(i)
+      return i
+    }
+    const first = field('Senha')
+    const second = opts.confirm ? field('Repita a senha') : null
+    let remember: HTMLInputElement | null = null
+    if (opts.remember) {
+      const label = document.createElement('label')
+      label.className = 'modal-check'
+      remember = document.createElement('input')
+      remember.type = 'checkbox'
+      label.append(remember, ' Lembrar neste aparelho (pede o PIN ou a digital para abrir)')
+      box.appendChild(label)
+    }
+    const error = document.createElement('p')
+    error.className = 'modal-error'
+    box.appendChild(error)
+    const ok = (): void => {
+      if (!first.value) return
+      if (second && first.value.length < 6) {
+        error.textContent = 'Use pelo menos 6 caracteres.'
+        return
+      }
+      if (second && first.value !== second.value) {
+        error.textContent = 'As senhas não são iguais.'
+        return
+      }
+      close({ password: first.value, remember: remember?.checked ?? false })
+    }
+    for (const i of [first, second]) i?.addEventListener('keydown', (e) => e.key === 'Enter' && ok())
+    buttons(box, [
+      { label: 'Cancelar', onClick: () => close(null) },
+      { label: opts.okLabel ?? 'OK', primary: true, onClick: ok }
+    ])
+    queueMicrotask(() => first.focus())
+  })
+  return v && typeof v === 'object' ? (v as PasswordResult) : null
+}
+
 export async function confirm(title: string, message: string, okLabel = 'OK', danger = false): Promise<boolean> {
   const v = await modal((box, close) => {
     box.append(Object.assign(document.createElement('h2'), { textContent: title }))

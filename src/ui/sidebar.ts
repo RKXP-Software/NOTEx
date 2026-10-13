@@ -28,6 +28,11 @@ export interface SidebarActions {
   expandedChanged(): void
   /** Abrir o painel de busca ou o glossário. */
   openSearch(tab: 'search' | 'glossary'): void
+  /** Pedir a senha (e, no celular, o PIN do aparelho) e abrir os cadernos privados. */
+  unlockNotebooks(): void
+  lockNotebooks(): void
+  makePrivate(nb: Notebook): void
+  makePublic(nb: Notebook): void
 }
 
 export class Sidebar {
@@ -138,21 +143,21 @@ export class Sidebar {
     const open = this.expanded.has(key)
     const wrap = document.createElement('div')
     const row = this.row({
-      label: nb.name,
+      label: nb.private && !nb.locked ? `${nb.name} 🔓` : nb.name,
       depth: 0,
-      icon: nb.icon ?? (nb.id === QUICK_NOTEBOOK_ID ? '⚡' : '📓'),
-      twisty: open ? '▾' : '▸',
+      icon: nb.locked ? '🔒' : (nb.icon ?? (nb.id === QUICK_NOTEBOOK_ID ? '⚡' : '📓')),
+      twisty: nb.locked ? '' : open ? '▾' : '▸',
       cls: 'notebook',
       title: nb.path
     })
-    row.addEventListener('click', () => this.toggle(key))
+    row.addEventListener('click', () => (nb.locked ? this.actions.unlockNotebooks() : this.toggle(key)))
     row.addEventListener('contextmenu', (e) => {
       e.preventDefault()
       showMenu(e.clientX, e.clientY, this.notebookMenu(nb))
     })
     this.dropTarget(row, nb.path)
     wrap.appendChild(row)
-    if (open) {
+    if (open && !nb.locked) {
       const kids = this.trees.get(nb.id) ?? []
       if (kids.length === 0) {
         const empty = document.createElement('div')
@@ -168,10 +173,24 @@ export class Sidebar {
 
   private notebookMenu(nb: Notebook): MenuEntry[] {
     const quick = nb.id === QUICK_NOTEBOOK_ID
+    const priv: MenuEntry[] = nb.locked
+      ? [{ label: 'Desbloquear…', action: () => this.actions.unlockNotebooks() }]
+      : nb.private
+        ? [
+            { label: 'Bloquear agora', action: () => this.actions.lockNotebooks() },
+            { label: 'Remover a privacidade…', action: () => this.actions.makePublic(nb) }
+          ]
+        : [{ label: 'Tornar caderno privado…', disabled: quick, action: () => this.actions.makePrivate(nb) }]
     return [
-      { label: 'Nova nota', action: () => this.actions.newNote(nb.path, 'md') },
-      { label: 'Nova nota de texto (.txt)', action: () => this.actions.newNote(nb.path, 'txt') },
-      { label: 'Nova pasta…', action: () => this.actions.newFolder(nb.path) },
+      ...(nb.locked
+        ? []
+        : ([
+            { label: 'Nova nota', action: () => this.actions.newNote(nb.path, 'md') },
+            { label: 'Nova nota de texto (.txt)', action: () => this.actions.newNote(nb.path, 'txt') },
+            { label: 'Nova pasta…', action: () => this.actions.newFolder(nb.path) },
+            'sep'
+          ] as MenuEntry[])),
+      ...priv,
       'sep',
       { label: 'Renomear caderno…', action: () => this.actions.renameNotebook(nb) },
       { label: 'Escolher ícone…', action: () => this.actions.chooseIcon(nb.path, nb.icon, true) },

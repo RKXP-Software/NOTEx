@@ -8,7 +8,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { listen } from '@tauri-apps/api/event'
-import { api, errorMessage, EVENT_FILES, QUICK_NOTEBOOK_ID, type FilesChanged, type Notebook, type TreeEntry } from './api'
+import { api, errorMessage, EVENT_FILES, LOCKED, QUICK_NOTEBOOK_ID, type FilesChanged, type Notebook, type TreeEntry } from './api'
 import { Doc } from './doc'
 import {
   addTab,
@@ -29,7 +29,8 @@ import {
 import { baseName, countWords, dirName, docKind, firstLineDone, isWithin, quickNoteTitle, rebase, samePath, stem, titleFromText, txtToMarkdown } from './naming'
 import { Theme, parseThemePref, type ThemePref } from './theme'
 import { hasDesktopFs, isMobile } from './platform'
-import { choose, confirm, pickIcon, prompt, showMenu, toast, type MenuEntry } from './ui/dialogs'
+import { choose, confirm, pickIcon, prompt, promptPassword, showMenu, toast, type MenuEntry } from './ui/dialogs'
+import { authenticateDevice } from './ui/device-auth'
 import { Sidebar } from './ui/sidebar'
 import { editLink, Toolbar } from './ui/toolbar'
 import { Workspace } from './ui/workspace'
@@ -120,7 +121,11 @@ export class App {
       convert: (path) => void this.convertNote(path),
       reveal: (path) => void revealItemInDir(path).catch((e) => toast(errorMessage(e), 'error')),
       expandedChanged: () => this.scheduleSession(),
-      openSearch: (tab) => this.openSearch(tab)
+      openSearch: (tab) => this.openSearch(tab),
+      unlockNotebooks: () => void this.unlockNotebooks(),
+      lockNotebooks: () => void this.lockNotebooks(),
+      makePrivate: (nb) => void this.makePrivate(nb),
+      makePublic: (nb) => void this.makePublic(nb)
     })
     this.search = new SearchPanel(this.el.sidebar, {
       openAt: (path, target) => void this.openAt(path, target),
@@ -215,7 +220,10 @@ export class App {
     window.addEventListener('blur', () => void this.saveAll())
     // Android pode encerrar o app em segundo plano sem aviso: grava ao sair da tela.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') void this.flushAll()
+      if (document.visibilityState !== 'hidden') return
+      void this.flushAll()
+      // Celular: os cadernos privados trancam ao sair do app.
+      if (isMobile && this.notebooks.some((n) => n.private && !n.locked)) void this.lockNotebooks()
     })
     if (isMobile) this.bindDrawer()
 
@@ -434,6 +442,10 @@ export class App {
       try {
         doc = await Doc.open(path, { dark: this.theme.dark, autoName: opts.autoName }, this.docHooks)
       } catch (e) {
+        if (errorMessage(e) === LOCKED) {
+          if (await this.unlockNotebooks()) return this.openPath(path, opts)
+          return undefined
+        }
         toast(errorMessage(e), 'error')
         return undefined
       }
@@ -706,6 +718,105 @@ export class App {
       await api.removeNotebook(nb.id, pick === 1)
       this.notebooks = this.notebooks.filter((n) => n.id !== nb.id)
       await this.refreshTrees()
+    } catch (e) {
+      toast(errorMessage(e), 'error')
+    }
+  }
+
+  // ---- Cadernos privados ----
+
+  /** Fecha (salvando) as abas de um caderno. */
+  private async closeTabsIn(nb: Notebook): Promise<void> {
+    await this.settle(nb.path)
+    for (const doc of [...this.docs.values()]) {
+      if (isWithin(nb.path, doc.path)) await this.closeTab(doc.path)
+    }
+  }
+
+  /**
+   * Abre os cadernos privados. Celular: primeiro o PIN/digital do aparelho; depois a senha guardada
+   * ou a senha mestra digitada. Devolve true se abriu.
+   */
+  private async unlockNotebooks(): Promise<boolean> {
+    try {
+      const auth = isMobile ? await authenticateDevice('Abrir os cadernos privados') : 'unavailable'
+      if (auth === 'cancelled') return false
+      let status = await api.vaultStatus()
+      if (!status.unlocked && status.remembered && auth === 'ok') {
+        status = await api.vaultUnlockRemembered().catch(() => status)
+      }
+      let message = 'Digite a senha mestra dos cadernos privados.'
+      while (!status.unlocked) {
+        const r = await promptPassword('Cadernos privados', {
+          message,
+          remember: isMobile && auth === 'ok',
+          okLabel: 'Desbloquear'
+        })
+        if (!r) return false
+        try {
+          status = await api.vaultUnlock(r.password, r.remember)
+        } catch (e) {
+          // Senha errada: pergunta de novo, com o aviso, em vez de fechar o diálogo.
+          message = `${errorMessage(e)} Tente de novo.`
+        }
+      }
+      await this.reloadNotebooks()
+      this.search.refresh()
+      return true
+    } catch (e) {
+      toast(errorMessage(e), 'error')
+      return false
+    }
+  }
+
+  /** Tranca tudo: grava e fecha as abas privadas, esquece a senha e as chaves da memória. */
+  private async lockNotebooks(): Promise<void> {
+    try {
+      for (const nb of this.notebooks.filter((n) => n.private && !n.locked)) await this.closeTabsIn(nb)
+      await this.saveSession()
+      await api.vaultLock()
+      await this.reloadNotebooks()
+      this.search.refresh()
+    } catch (e) {
+      toast(errorMessage(e), 'error')
+    }
+  }
+
+  private async makePrivate(nb: Notebook): Promise<void> {
+    const first = !this.notebooks.some((n) => n.private)
+    const r = await promptPassword(`Tornar "${nb.name}" privado`, {
+      message: first
+        ? 'As notas serão cifradas, também no Google Drive e nos outros aparelhos. Esta é a senha mestra de todos os cadernos privados. Sem ela não há como recuperar o conteúdo.'
+        : 'Use a mesma senha mestra dos outros cadernos privados.',
+      confirm: first,
+      okLabel: 'Tornar privado'
+    })
+    if (!r) return
+    try {
+      await this.closeTabsIn(nb)
+      await api.vaultMakePrivate(nb.id, r.password)
+      await this.reloadNotebooks()
+      this.search.refresh()
+      toast(`"${nb.name}" agora é privado.`)
+    } catch (e) {
+      toast(errorMessage(e), 'error')
+    }
+  }
+
+  private async makePublic(nb: Notebook): Promise<void> {
+    const ok = await confirm(
+      `Remover a privacidade de "${nb.name}"?`,
+      'As notas voltam a ficar em texto comum, legíveis por qualquer programa e no Google Drive.',
+      'Remover',
+      true
+    )
+    if (!ok) return
+    try {
+      await this.closeTabsIn(nb)
+      await api.vaultMakePublic(nb.id)
+      await this.reloadNotebooks()
+      this.search.refresh()
+      toast(`"${nb.name}" não é mais privado.`)
     } catch (e) {
       toast(errorMessage(e), 'error')
     }
