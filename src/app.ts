@@ -29,7 +29,7 @@ import {
 import { baseName, countWords, dirName, docKind, firstLineDone, isWithin, quickNoteTitle, rebase, samePath, stem, titleFromText, txtToMarkdown } from './naming'
 import { Theme, parseThemePref, type ThemePref } from './theme'
 import { hasDesktopFs, isMobile } from './platform'
-import { choose, confirm, pickIcon, prompt, promptPassword, showMenu, toast, type MenuEntry } from './ui/dialogs'
+import { choose, confirm, pickIcon, prompt, promptPassword, promptTerm, showMenu, toast, type MenuEntry } from './ui/dialogs'
 import { authenticateDevice } from './ui/device-auth'
 import { Sidebar } from './ui/sidebar'
 import { editLink, Toolbar } from './ui/toolbar'
@@ -1058,16 +1058,19 @@ export class App {
   private async defineTerm(): Promise<void> {
     const nb = this.activeNotebook()
     if (!nb) return
-    const term = await prompt('Termo a definir', this.selectedText(), 'Continuar')
-    if (!term?.trim()) return
-    const definition = await prompt(`Definição de "${term.trim()}"`, '', 'Salvar')
-    if (!definition?.trim()) return
+    const r = await promptTerm({
+      term: this.selectedText(),
+      notebooks: this.notebooks.filter((n) => !n.locked),
+      notebookId: nb.id
+    })
+    if (!r) return
     try {
-      const path = await api.defineTerm(nb.id, term, definition)
+      const path = await api.defineTerm(r.notebookId, r.term, r.definition)
       await this.refreshTrees()
       await this.findDoc(path)?.reloadIfChanged().catch(() => undefined)
       this.search.refresh()
-      toast(`Termo salvo em ${nb.name} › Glossário.`)
+      const where = this.notebooks.find((n) => n.id === r.notebookId)?.name ?? nb.name
+      toast(`Termo salvo em ${where} › Glossário.`)
     } catch (e) {
       toast(errorMessage(e), 'error')
     }

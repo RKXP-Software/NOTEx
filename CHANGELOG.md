@@ -4,7 +4,7 @@
 - Cadernos privados: no menu do caderno, "Tornar caderno privado…". As notas ficam cifradas no disco, no Google Drive e nos outros aparelhos; só abrem com a senha mestra (e, no celular, com o PIN, padrão ou digital do aparelho). No celular o caderno tranca ao sair do app. Sem a senha mestra não há como recuperar o conteúdo.
 - Instalador do Windows: se o NOTEx já estiver instalado, atualiza por cima sozinho, sem pedir para desinstalar a versão antiga.
 - Busca em todas as notas (Ctrl+Shift+F, ou o ícone 🔍 na barra lateral): ignora acentos e maiúsculas, mostra o trecho e abre a nota já no ponto encontrado.
-- Glossário (Ctrl+Shift+G, ou 📖): lista os termos definidos nas suas notas, com filtro por caderno. Defina um termo escrevendo `**Termo**: definição` ou `Termo:: definição` em qualquer nota, ou pelo botão 📖 da barra de funções (Ctrl+Shift+D).
+- Glossário (Ctrl+Shift+G, ou 📖): lista os termos definidos nas suas notas, com filtro por caderno. Defina um termo escrevendo `**Termo**: definição` ou `Termo:: definição` em qualquer nota, ou pelo botão 📖 da barra de funções (Ctrl+Shift+D), que abre uma janela com campo de termo, caixa de texto grande para a definição (várias linhas) e escolha do caderno.
 - Janela "Novidades": toque na versão, na barra inferior, para ver o que mudou. Ela abre sozinha depois de uma atualização.
 - Excluir caderno agora pergunta se a pasta também deve ser apagada (vai para a Lixeira). Renomear um caderno renomeia a pasta no disco, e as duas coisas chegam aos outros aparelhos.
 - Cadernos removidos em um aparelho saem da lista e da pasta dos outros (para a Lixeira).

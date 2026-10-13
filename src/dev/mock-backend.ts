@@ -182,7 +182,9 @@ function handle(cmd: string, a: Args): unknown {
       if (!nb) throw new Error('Caderno não encontrado.')
       const p = `${nb.path}${SEP}Glossário.md`
       const old = files.get(p)?.text ?? '# Glossário\n\n'
-      files.set(p, { text: `${old}**${s('term')}**: ${s('definition')}\n`, mtime: Date.now() })
+      const [first = '', ...rest] = s('definition').split('\n').map((l) => l.trim()).filter(Boolean)
+      const entry = [`**${s('term')}**: ${first}`, ...rest.map((l) => `  ${l}`)].join('\n')
+      files.set(p, { text: `${old}${entry}\n`, mtime: Date.now() })
       return p
     }
     case 'list_tree': {

@@ -556,8 +556,8 @@ const GLOSSARY_FILE: &str = "Glossário.md";
 /// Acrescenta `**termo**: definição` ao `Glossário.md` do caderno (criado se não existir).
 #[tauri::command]
 fn define_term(app: AppHandle, state: State<AppState>, notebook: String, term: String, definition: String) -> CmdResult<PathBuf> {
-    let one_line = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
-    let (term, definition) = (one_line(&term), one_line(&definition));
+    let term = term.split_whitespace().collect::<Vec<_>>().join(" ");
+    let definition = definition.trim().to_string();
     if term.is_empty() || definition.is_empty() {
         return Err("Informe o termo e a definição.".into());
     }
@@ -567,7 +567,7 @@ fn define_term(app: AppHandle, state: State<AppState>, notebook: String, term: S
     let root = state.with_config(|c| Ok(c.notebook(&notebook)?.path.clone()), false)?;
     fs::create_dir_all(&root).map_err(|e| format!("Pasta do caderno inacessível: {e}"))?;
     let path = root.join(GLOSSARY_FILE);
-    let line = format!("**{term}**: {definition}");
+    let line = index::term_entry(&term, &definition);
     let (text, format) = match read_decoded(&state, &path) {
         Ok(d) => {
             let mut t = d.text;

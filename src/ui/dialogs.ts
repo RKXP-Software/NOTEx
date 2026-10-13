@@ -161,6 +161,83 @@ export async function prompt(title: string, initial = '', okLabel = 'OK'): Promi
   return typeof v === 'string' ? v : null
 }
 
+export interface TermResult {
+  term: string
+  definition: string
+  notebookId: string
+}
+
+/**
+ * Janela "Definir termo": nome, definição em várias linhas e o caderno onde guardar.
+ * Ctrl+Enter salva. Devolve null se cancelado.
+ */
+export async function promptTerm(opts: {
+  term?: string
+  notebooks: { id: string; name: string }[]
+  notebookId: string
+}): Promise<TermResult | null> {
+  const v = await modal((box, close) => {
+    box.classList.add('wide')
+    box.append(Object.assign(document.createElement('h2'), { textContent: 'Definir termo' }))
+    const label = (text: string, field: HTMLElement): void => {
+      const l = document.createElement('label')
+      l.className = 'modal-field'
+      l.append(Object.assign(document.createElement('span'), { textContent: text }), field)
+      box.appendChild(l)
+    }
+    const term = document.createElement('input')
+    term.type = 'text'
+    term.value = opts.term ?? ''
+    term.spellcheck = false
+    label('Termo', term)
+    const def = document.createElement('textarea')
+    def.rows = 7
+    def.placeholder = 'Explique o termo. Use Enter para uma nova linha.'
+    label('Definição', def)
+    const where = document.createElement('select')
+    for (const nb of opts.notebooks) where.append(new Option(nb.name, nb.id))
+    where.value = opts.notebookId
+    if (opts.notebooks.length > 1) label('Guardar no caderno', where)
+    const hint = document.createElement('p')
+    hint.className = 'modal-hint'
+    hint.textContent = 'Fica no arquivo Glossário.md do caderno, como **Termo**: definição.'
+    const error = document.createElement('p')
+    error.className = 'modal-error'
+    box.append(hint, error)
+    const ok = (): void => {
+      if (!term.value.trim() || term.value.includes('**')) {
+        error.textContent = 'Informe o termo (sem **).'
+        term.focus()
+        return
+      }
+      if (!def.value.trim()) {
+        error.textContent = 'Escreva a definição.'
+        def.focus()
+        return
+      }
+      close({ term: term.value.trim(), definition: def.value.trim(), notebookId: where.value })
+    }
+    for (const f of [term, def] as HTMLElement[]) {
+      f.addEventListener('keydown', (e) => {
+        const k = e as KeyboardEvent
+        if ((k.ctrlKey || k.metaKey) && k.key === 'Enter') ok()
+      })
+    }
+    term.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        def.focus()
+      }
+    })
+    buttons(box, [
+      { label: 'Cancelar', onClick: () => close(null) },
+      { label: 'Salvar', primary: true, onClick: ok }
+    ])
+    queueMicrotask(() => (term.value ? def : term).focus())
+  })
+  return v && typeof v === 'object' ? (v as TermResult) : null
+}
+
 export interface PasswordResult {
   password: string
   remember: boolean

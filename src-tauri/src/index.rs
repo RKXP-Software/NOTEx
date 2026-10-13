@@ -253,7 +253,11 @@ impl Index {
         for (i, path) in self.refresh(nbs) {
             let nb = &nbs[i];
             let mut fence = false;
-            for (n, line) in self.files[&path].lines.iter().enumerate() {
+            let lines = &self.files[&path].lines;
+            let mut n = 0;
+            while n < lines.len() {
+                let line = &lines[n];
+                n += 1;
                 if line.trim_start().starts_with("```") {
                     fence = !fence;
                     continue;
@@ -261,14 +265,21 @@ impl Index {
                 if fence {
                     continue;
                 }
-                if let Some((term, definition)) = parse_term(line) {
+                if let Some((term, mut definition)) = parse_term(line) {
+                    let first = n;
+                    // Definição de várias linhas: as linhas seguintes do mesmo parágrafo.
+                    while n < lines.len() && is_continuation(&lines[n]) {
+                        definition.push('\n');
+                        definition.push_str(lines[n].trim());
+                        n += 1;
+                    }
                     out.push(Term {
                         term,
                         definition,
                         notebook_id: nb.id.clone(),
                         notebook_name: nb.name.clone(),
                         path: path.to_string_lossy().into_owned(),
-                        line: n + 1,
+                        line: first,
                     });
                 }
             }
@@ -276,6 +287,33 @@ impl Index {
         out.sort_by(|a, b| fold(&a.term).cmp(&fold(&b.term)));
         out
     }
+}
+
+/// Linha que continua a definição do termo acima: mesmo parágrafo (sem linha em branco), recuada
+/// ou que não comece outro bloco (título, lista, citação, código, outro termo).
+fn is_continuation(line: &str) -> bool {
+    if line.trim().is_empty() {
+        return false;
+    }
+    if line.starts_with("  ") || line.starts_with('\t') {
+        return !line.trim_start().starts_with("```");
+    }
+    let t = line.trim_start();
+    let numbered = t.split_once(". ").is_some_and(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
+    !(t.starts_with('#') || t.starts_with("```") || t.starts_with("- ") || t.starts_with("* ") || t.starts_with("> ") || numbered || parse_term(line).is_some())
+}
+
+/// Linhas de um termo para gravar no `Glossário.md`: `**termo**: primeira linha` e as demais recuadas
+/// (continuação do mesmo parágrafo em Markdown). Linhas em branco da definição são descartadas.
+pub fn term_entry(term: &str, definition: &str) -> String {
+    let mut lines = definition.lines().map(str::trim).filter(|l| !l.is_empty());
+    let first = lines.next().unwrap_or_default();
+    let mut out = format!("**{}**: {first}", term.trim());
+    for l in lines {
+        out.push_str("\n  ");
+        out.push_str(l);
+    }
+    out
 }
 
 /// `**Termo**: definição`, `**Termo:** definição` ou `Termo:: definição` (uma linha).
@@ -369,6 +407,21 @@ mod tests {
         idx.invalidate();
         assert!(idx.search(&nbs, "beta", None).is_empty());
         assert!(idx.files.is_empty());
+    }
+
+    #[test]
+    fn definicao_de_varias_linhas() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry = term_entry("PDFx", "Padrão ISO para troca de arquivos gráficos.\n\n  - versão 1\nUsado em gráficas.");
+        assert_eq!(entry, "**PDFx**: Padrão ISO para troca de arquivos gráficos.\n  - versão 1\n  Usado em gráficas.");
+        write(dir.path(), "a", "g.md", &format!("# G\n{entry}\n\n**Outro**: simples\n- item solto\n"));
+        let terms = Index::default().terms(&[nb(dir.path(), "a", "A")]);
+        assert_eq!(terms.len(), 2);
+        assert_eq!(terms[0].term, "Outro");
+        assert_eq!(terms[1].term, "PDFx");
+        assert_eq!(terms[1].definition, "Padrão ISO para troca de arquivos gráficos.\n- versão 1\nUsado em gráficas.");
+        assert_eq!(terms[1].line, 2);
+        assert_eq!(terms[0].definition, "simples", "a lista logo abaixo não entra na definição");
     }
 
     #[test]
