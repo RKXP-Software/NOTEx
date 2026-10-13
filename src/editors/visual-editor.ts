@@ -232,6 +232,10 @@ export class VisualEditor implements NoteEditor {
     this.editor.commands.focus()
   }
 
+  setReadOnly(readOnly: boolean): void {
+    this.editor.setEditable(!readOnly)
+  }
+
   reveal(t: RevealTarget): void {
     if (t.line < 1) return
     // O Markdown tem uma linha por bloco; acha o bloco de mesma ordem entre os que têm o termo.

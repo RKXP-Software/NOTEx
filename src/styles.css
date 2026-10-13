@@ -630,6 +630,43 @@ body.resizing-row * {
 .doc-host > * {
   height: 100%;
 }
+/* Com a faixa de "somente leitura" no topo, o editor ocupa o resto. */
+.doc-host.has-banner {
+  display: flex;
+  flex-direction: column;
+}
+.doc-host.has-banner > :not(.doc-banner) {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+.doc-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: auto;
+  padding: 6px 12px;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.doc-banner span {
+  flex: 1;
+}
+.doc-banner button {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.doc-banner button:hover {
+  background: var(--btn-hover);
+}
 .text-editor .cm-editor {
   height: 100%;
 }

@@ -28,6 +28,8 @@ export interface SidebarActions {
   expandedChanged(): void
   /** Abrir o painel de busca ou o glossário. */
   openSearch(tab: 'search' | 'glossary'): void
+  /** Abrir um .md/.txt avulso só para ler. */
+  openFile(): void
   /** Pedir a senha (e, no celular, o PIN do aparelho) e abrir os cadernos privados. */
   unlockNotebooks(): void
   lockNotebooks(): void
@@ -62,6 +64,7 @@ export class Sidebar {
       const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
       showMenu(r.left, r.bottom + 2, [
         { label: 'Novo caderno…', action: () => actions.newNotebook() },
+        { label: 'Abrir arquivo (só leitura)…', action: () => actions.openFile() },
         ...(desktop
           ? ([
               { label: 'Adicionar pasta existente…', action: () => actions.addExistingFolder() },

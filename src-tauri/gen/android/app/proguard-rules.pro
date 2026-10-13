@@ -36,5 +36,10 @@
 -keep class app.tauri.biometric.** { *; }
 -keep class androidx.biometric.** { *; }
 
+# ---- NOTEx: ponte JavaScript que entrega arquivos recebidos de outros apps ----
+-keepclassmembers class com.rkxp.notex.MainActivity$Bridge {
+    @android.webkit.JavascriptInterface <methods>;
+}
+
 # Linhas nos rastros de erro (ajuda a diagnosticar falhas no celular).
 -keepattributes SourceFile,LineNumberTable

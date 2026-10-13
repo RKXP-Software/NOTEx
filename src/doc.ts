@@ -1,6 +1,6 @@
 // Documento aberto: arquivo em disco + editor + salvamento automático.
 
-import { api, CONFLICT, type TextFormat } from './api'
+import { api, CONFLICT, DEFAULT_FORMAT, type TextFormat } from './api'
 import { docKind, type DocKind } from './naming'
 import { TextEditor } from './editors/text-editor'
 import { VisualEditor } from './editors/visual-editor'
@@ -35,6 +35,12 @@ export class Doc {
   raw = false
   /** Nota rápida ainda com nome provisório: será renomeada pela primeira linha. */
   autoName = false
+  /** Só visualização: não edita nem grava. */
+  readOnly = false
+  /** 'file' = arquivo avulso fora dos cadernos; 'text' = texto recebido de outro app (sem arquivo). */
+  loose: 'file' | 'text' | null = null
+  /** Faixa fixa acima do editor (aviso de somente leitura). */
+  private banner: HTMLElement | null = null
 
   /** Texto (como o editor o serializa) que corresponde ao arquivo em disco. */
   private savedText = ''
@@ -63,6 +69,40 @@ export class Doc {
     return doc
   }
 
+  /** Abre um .md/.txt de fora dos cadernos só para ler (não o registra no NOTEx). */
+  static async openLoose(path: string, opts: { dark: boolean }, hooks: DocHooks): Promise<Doc> {
+    const content = await api.readLooseNote(path)
+    const doc = new Doc(path, content.format, null, opts.dark, hooks)
+    doc.loose = 'file'
+    doc.readOnly = true
+    doc.mountEditor(content.text)
+    doc.savedText = doc.editor.getText()
+    return doc
+  }
+
+  /** Documento de leitura feito de um texto (arquivo recebido de outro app). `key` identifica a aba. */
+  static fromText(key: string, text: string, opts: { dark: boolean }, hooks: DocHooks): Doc {
+    const doc = new Doc(key, DEFAULT_FORMAT, null, opts.dark, hooks)
+    doc.loose = 'text'
+    doc.readOnly = true
+    doc.mountEditor(text)
+    doc.savedText = doc.editor.getText()
+    return doc
+  }
+
+  setReadOnly(readOnly: boolean): void {
+    this.readOnly = readOnly
+    this.editor.setReadOnly(readOnly)
+  }
+
+  /** Mostra (ou tira, com null) a faixa acima do editor. */
+  setBanner(banner: HTMLElement | null): void {
+    this.banner?.remove()
+    this.banner = banner
+    this.host.classList.toggle('has-banner', !!banner)
+    if (banner) this.host.prepend(banner)
+  }
+
   get kind(): DocKind {
     return docKind(this.path)
   }
@@ -77,12 +117,13 @@ export class Doc {
       onSelection: () => this.hooks.selection(this)
     }
     this.editor?.destroy()
-    this.host.replaceChildren()
+    this.host.replaceChildren(...(this.banner ? [this.banner] : []))
     this.editor =
       this.kind === 'md' && !this.raw
         ? new VisualEditor(text, events)
         : new TextEditor(text, events, { markdown: this.kind === 'md', dark: this.dark })
     this.host.appendChild(this.editor.dom)
+    if (this.readOnly) this.editor.setReadOnly(true)
   }
 
   /** Alterna editor visual ↔ Markdown cru, preservando o texto. */
@@ -123,7 +164,7 @@ export class Doc {
   async save(): Promise<void> {
     window.clearTimeout(this.timer)
     while (this.pending) await this.pending
-    if (!this.dirty) return
+    if (this.readOnly || !this.dirty) return
     const seq = this.changeSeq
     const text = this.editor.getText()
     // Nada mudou de fato (ex.: digitou e desfez): não regrava o arquivo.
@@ -160,7 +201,7 @@ export class Doc {
 
   /** Recarrega do disco se o arquivo mudou fora do app e não há alterações locais. */
   async reloadIfChanged(): Promise<'reloaded' | 'missing' | 'unchanged'> {
-    if (this.dirty || this.status === 'saving') return 'unchanged'
+    if (this.loose || this.dirty || this.status === 'saving') return 'unchanged'
     const mtime = await api.noteMtime(this.path).catch(() => null)
     if (mtime === null) return 'missing'
     if (mtime === this.mtime) return 'unchanged'

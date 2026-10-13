@@ -103,6 +103,7 @@ export class TextEditor implements NoteEditor {
   readonly view: EditorView
   private readonly themeSlot = new Compartment()
   private readonly fontSlot = new Compartment()
+  private readonly editableSlot = new Compartment()
   private dark: boolean
   private silent = false
   private readonly offTerms: () => void
@@ -122,6 +123,7 @@ export class TextEditor implements NoteEditor {
       keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
       EditorView.lineWrapping,
       termHighlight,
+      this.editableSlot.of([]),
       EditorState.tabSize.of(4),
       baseTheme,
       this.fontSlot.of(fontTheme(editorFontSize())),
@@ -155,6 +157,12 @@ export class TextEditor implements NoteEditor {
 
   focus(): void {
     this.view.focus()
+  }
+
+  setReadOnly(readOnly: boolean): void {
+    this.view.dispatch({
+      effects: this.editableSlot.reconfigure(readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : [])
+    })
   }
 
   reveal(t: RevealTarget): void {

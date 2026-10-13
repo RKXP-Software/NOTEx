@@ -90,7 +90,7 @@ export class Toolbar {
     }
 
     btn('☰', 'Mostrar/ocultar barra lateral (Ctrl+Shift+E)', actions.toggleSidebar, 'icon')
-    btn('＋ Nota', 'Nova nota rápida (Ctrl+N)', actions.newQuickNote)
+    btn('＋ Nota', 'Nova nota (Ctrl+N): na pasta da nota aberta, ou em Rápidas', actions.newQuickNote)
     if (desktop) btn('Abrir', 'Abrir arquivo .md/.txt (Ctrl+O)', actions.openFile)
     target = scroll
     for (const def of FORMAT) {

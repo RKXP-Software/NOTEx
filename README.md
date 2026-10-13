@@ -9,12 +9,13 @@ Site, política de privacidade e termos: <https://rkxp-software.github.io/notex-
 ## Funcionalidades
 
 - **Cadernos e notas:** cada caderno é uma pasta no disco com arquivos `.md` e `.txt` comuns, que abrem em qualquer outro editor. Há subpastas, ícones por pasta e por caderno (botão direito) e uma lixeira por caderno (`.lixeira`). Apagar nunca remove o arquivo de verdade.
-- **Nota rápida:** `Ctrl+N` cria uma nota no caderno "Rápidas", sem pedir nome. Ao terminar a primeira linha, o arquivo é renomeado com ela.
+- **Nota rápida:** `Ctrl+N` cria uma nota sem pedir nome, na pasta da nota que está aberta (ou em "Rápidas", se não houver). Ao terminar a primeira linha, o arquivo é renomeado com ela.
 - **Abas em grade:** arraste uma aba para a borda de um painel para dividir em colunas e linhas; os divisores se ajustam arrastando (duplo clique iguala os lados).
 - **Editor visual** para `.md` (negrito, itálico, títulos, listas, tarefas, citação, código, links, tabelas, imagens) que grava Markdown; `Ctrl+Shift+M` alterna para o Markdown cru. Os `.txt` abrem como texto puro. Dá para converter `.md` ↔ `.txt` pelo menu da nota.
 - **Salvamento automático** e sessão restaurada (abas, grade, zoom, tema). A codificação (UTF-8 ou Windows-1252), o BOM e o fim de linha dos arquivos são preservados.
 - **Busca e glossário:** `Ctrl+Shift+F` busca em todas as notas de todos os cadernos (sem acento nem maiúsculas) e abre a nota no trecho encontrado. `Ctrl+Shift+G` abre o glossário: os termos definidos nas notas (`**Termo**: definição` ou `Termo:: definição`), com filtro por caderno; `Ctrl+Shift+D` define um termo (vai para o `Glossário.md` do caderno). Nas notas, as palavras que são termos aparecem sublinhadas; clicar mostra a definição.
 - **Cadernos privados:** "Tornar caderno privado…" cifra as notas (Argon2id + ChaCha20-Poly1305) com uma senha mestra, no disco, no Drive e na sincronização. No celular exige também o PIN/padrão/digital do aparelho e tranca ao sair do app. Os nomes das notas não são cifrados, só o conteúdo, e **sem a senha não há recuperação**.
+- **Arquivos avulsos:** `.md` e `.txt` de fora dos cadernos abrem só para leitura (botão Abrir, "Abrir com" do Windows e do Android, Compartilhar no celular). A faixa no topo oferece Editar ou Salvar em um caderno.
 - **Zoom** do texto (50% a 300%), tema claro e escuro.
 - **Escolha onde guardar os cadernos:** pasta padrão configurável, mover um caderno para outra pasta ou adicionar uma pasta existente.
 
@@ -33,7 +34,7 @@ Regras comuns: sincroniza ao abrir, depois de cada alteração e quando o outro 
 
 | Atalho | Ação |
 |---|---|
-| `Ctrl+N` / `Ctrl+O` / `Ctrl+S` | Nova nota rápida / abrir arquivo / salvar tudo |
+| `Ctrl+N` / `Ctrl+O` / `Ctrl+S` | Nova nota (na pasta da nota aberta) / abrir arquivo avulso / salvar tudo |
 | `Ctrl+W`, `Ctrl+Tab`, `Ctrl+PgUp/PgDn` | Fechar aba / trocar de aba |
 | `Ctrl+\` / `Ctrl+Shift+\` | Dividir à direita / abaixo |
 | `Ctrl+Alt+←/→` | Mover o foco entre painéis |

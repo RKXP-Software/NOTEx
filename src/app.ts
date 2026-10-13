@@ -10,7 +10,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { listen } from '@tauri-apps/api/event'
-import { api, errorMessage, EVENT_FILES, LOCKED, QUICK_NOTEBOOK_ID, type FilesChanged, type Notebook, type TreeEntry } from './api'
+import { api, errorMessage, EVENT_FILES, EVENT_OPEN_FILES, LOCKED, QUICK_NOTEBOOK_ID, type FilesChanged, type Notebook, type TreeEntry } from './api'
 import { Doc } from './doc'
 import {
   addTab,
@@ -124,6 +124,7 @@ export class App {
       reveal: (path) => void revealItemInDir(path).catch((e) => toast(errorMessage(e), 'error')),
       expandedChanged: () => this.scheduleSession(),
       openSearch: (tab) => this.openSearch(tab),
+      openFile: () => (hasDesktopFs ? void this.openFileDialog() : this.pickFileToRead()),
       unlockNotebooks: () => void this.unlockNotebooks(),
       lockNotebooks: () => void this.lockNotebooks(),
       makePrivate: (nb) => void this.makePrivate(nb),
@@ -160,7 +161,7 @@ export class App {
       groupMenu: (g, x, y) =>
         showMenu(x, y, [
           {
-            label: 'Nova nota rápida',
+            label: 'Nova nota',
             shortcut: 'Ctrl+N',
             action: () => {
               this.focused = g
@@ -234,6 +235,10 @@ export class App {
     // Sincronização: indicador/painel e notas alteradas por outro aparelho.
     await new SyncUi(document.getElementById('st-sync')!).init()
     await listen<FilesChanged>(EVENT_FILES, (e) => void this.onFilesChanged(e.payload))
+    // "Abrir com" / duplo clique: arquivos da linha de comando e de uma segunda abertura do programa.
+    await listen<string[]>(EVENT_OPEN_FILES, (e) => void this.openLoose(e.payload))
+    if (hasDesktopFs) await this.openLoose(await api.takePendingOpen().catch(() => []))
+    this.bindAndroidOpen()
   }
 
   /** A sincronização gravou ou apagou arquivos: atualiza abas abertas e a barra lateral. */
@@ -439,14 +444,19 @@ export class App {
    */
   async openPath(
     path: string,
-    opts: { group?: string; side?: Side; index?: number; autoName?: boolean; focus?: boolean } = {}
+    opts: { group?: string; side?: Side; index?: number; autoName?: boolean; focus?: boolean; loose?: boolean; ready?: Doc } = {}
   ): Promise<Doc | undefined> {
     const existing = this.findDoc(path)
     const target = opts.group ?? this.focused
     let doc = existing
     if (!doc) {
       try {
-        doc = await Doc.open(path, { dark: this.theme.dark, autoName: opts.autoName }, this.docHooks)
+        doc =
+          opts.ready ??
+          (opts.loose
+            ? await Doc.openLoose(path, { dark: this.theme.dark }, this.docHooks)
+            : await Doc.open(path, { dark: this.theme.dark, autoName: opts.autoName }, this.docHooks))
+        if (doc.readOnly) this.refreshBanner(doc)
       } catch (e) {
         if (errorMessage(e) === LOCKED) {
           if (await this.unlockNotebooks()) return this.openPath(path, opts)
@@ -518,12 +528,47 @@ export class App {
     return this.notebooks.find((n) => n.id === QUICK_NOTEBOOK_ID)
   }
 
+  /**
+   * Android: arquivos recebidos por "Abrir com"/Compartilhar chegam pela ponte `NotexAndroid`
+   * (veja MainActivity). Consulta ao iniciar e ao voltar para o app.
+   */
+  private bindAndroidOpen(): void {
+    const bridge = (window as unknown as { NotexAndroid?: { takePending(): string } }).NotexAndroid
+    if (!isMobile || !bridge) return
+    const take = (): void => {
+      try {
+        const items = JSON.parse(bridge.takePending() || '[]') as { name: string; text: string }[]
+        for (const it of items) void this.openText(it.name, it.text)
+      } catch {
+        // sem arquivos pendentes
+      }
+    }
+    take()
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && take())
+    window.addEventListener('focus', take)
+  }
+
+  /** Pasta da nota aberta (se estiver num caderno destrancado): onde a nova nota nasce. */
+  private currentFolder(): { dir: string; nb: Notebook } | undefined {
+    const doc = this.activeDoc()
+    if (!doc || doc.readOnly) return undefined
+    const nb = this.notebooks.find((n) => !n.locked && isWithin(n.path, doc.path))
+    return nb ? { dir: dirName(doc.path), nb } : undefined
+  }
+
+  /**
+   * Nova nota sem pedir nome (o nome vem da primeira linha). Nasce na pasta da nota que está
+   * aberta; sem nota aberta num caderno, vai para "Rápidas".
+   */
   async newQuickNote(): Promise<void> {
-    const nb = this.quickNotebook()
-    if (!nb) return
+    const here = this.currentFolder()
+    const nb = here?.nb ?? this.quickNotebook()
+    const dir = here?.dir ?? nb?.path
+    if (!nb || !dir) return
     try {
-      const path = await api.createNote(nb.path, quickNoteTitle(), 'md')
+      const path = await api.createNote(dir, quickNoteTitle(), 'md')
       await this.refreshTrees()
+      this.sidebar.revealPath(nb, path)
       await this.openPath(path, { autoName: true })
     } catch (e) {
       toast(errorMessage(e), 'error')
@@ -932,13 +977,104 @@ export class App {
       filters: [{ name: 'Notas', extensions: ['md', 'txt', 'markdown'] }]
     })
     const paths = Array.isArray(picked) ? picked : picked ? [picked] : []
+    await this.openLoose(paths)
+  }
+
+  /**
+   * Abre arquivos pelo caminho (diálogo, "Abrir com", linha de comando). Dentro de um caderno
+   * abre normal; fora dele, só para ler (uma faixa oferece Editar e Salvar em um caderno).
+   */
+  private async openLoose(paths: string[]): Promise<void> {
     for (const path of paths) {
       try {
-        if (!this.notebooks.some((n) => isWithin(n.path, path))) await api.openExternal(path)
-        await this.openPath(path)
+        const inNotebook = this.notebooks.some((n) => isWithin(n.path, path))
+        const known = this.findDoc(path)
+        await this.openPath(path, { loose: !inNotebook && !known })
       } catch (e) {
         toast(errorMessage(e), 'error')
       }
+    }
+    if (paths.length) {
+      void getCurrentWindow().setFocus().catch(() => undefined)
+    }
+  }
+
+  private looseCount = 0
+
+  /** Abre um texto recebido de outro app (seletor de arquivos do celular, "Abrir com"), só leitura. */
+  async openText(name: string, text: string): Promise<void> {
+    const key = `texto://${++this.looseCount}/${name.replace(/[\\/]/g, '_')}`
+    const doc = Doc.fromText(key, text, { dark: this.theme.dark }, this.docHooks)
+    await this.openPath(key, { ready: doc })
+    if (isMobile) this.setSidebar(false)
+  }
+
+  /** Celular: escolhe um .md/.txt no seletor de arquivos do Android e abre para ler. */
+  private pickFileToRead(): void {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.md,.markdown,.txt,text/plain,text/markdown,text/x-markdown'
+    input.addEventListener('change', () => {
+      const file = input.files?.[0]
+      if (!file) return
+      if (file.size > 10 * 1024 * 1024) return void toast('Arquivo grande demais (até 10 MB).', 'error')
+      void file.text().then((text) => this.openText(file.name, text))
+    })
+    input.click()
+  }
+
+  /** Faixa "Somente leitura" no topo de um documento avulso. */
+  private refreshBanner(doc: Doc): void {
+    if (!doc.readOnly) return doc.setBanner(null)
+    const bar = document.createElement('div')
+    bar.className = 'doc-banner'
+    bar.append(Object.assign(document.createElement('span'), { textContent: 'Somente leitura' }))
+    const add = (label: string, run: () => void): void => {
+      const b = Object.assign(document.createElement('button'), { textContent: label })
+      b.addEventListener('click', run)
+      bar.append(b)
+    }
+    if (doc.loose === 'file') add('Editar', () => void this.enableEditing(doc))
+    add('Salvar em um caderno…', () => void this.saveLooseToNotebook(doc))
+    doc.setBanner(bar)
+  }
+
+  /** Arquivo avulso: passa a editar o próprio arquivo (fica registrado no NOTEx como arquivo avulso). */
+  private async enableEditing(doc: Doc): Promise<void> {
+    try {
+      await api.openExternal(doc.path)
+      doc.loose = null
+      doc.setReadOnly(false)
+      await doc.refreshMtime()
+      this.refreshBanner(doc)
+      this.updateChrome()
+      doc.editor.focus()
+    } catch (e) {
+      toast(errorMessage(e), 'error')
+    }
+  }
+
+  /** Copia o conteúdo para um caderno (o arquivo original não é alterado) e abre a cópia. */
+  private async saveLooseToNotebook(doc: Doc): Promise<void> {
+    const options = this.notebooks.filter((n) => !n.locked)
+    if (!options.length) return
+    let nb = options[0]!
+    if (options.length > 1) {
+      const pick = await choose('Salvar em qual caderno?', 'Uma cópia vai para a raiz do caderno escolhido.', options.map((n) => ({ label: n.name, detail: n.path })))
+      if (pick === null) return
+      nb = options[pick]!
+    }
+    try {
+      const path = await api.createNote(nb.path, stem(doc.path), doc.kind)
+      await api.writeNote(path, doc.text(), doc.format)
+      const group = findGroup(this.layout, this.focused)?.id
+      await this.closeTab(doc.path)
+      await this.refreshTrees()
+      this.sidebar.revealPath(nb, path)
+      await this.openPath(path, { group })
+      toast(`Salvo em ${nb.name}.`)
+    } catch (e) {
+      toast(errorMessage(e), 'error')
     }
   }
 
@@ -1259,7 +1395,7 @@ export class App {
   private updateChrome(): void {
     const doc = this.activeDoc()
     const visual = doc?.editor instanceof VisualEditor ? doc.editor.editor : null
-    this.toolbar.update({ editor: visual, canRaw: doc?.kind === 'md', raw: !!doc?.raw })
+    this.toolbar.update({ editor: doc?.readOnly ? null : visual, canRaw: doc?.kind === 'md', raw: !!doc?.raw })
     this.sidebar.setActive(doc?.path ?? null)
     const title = doc ? `${stem(doc.path)} — NOTEx` : 'NOTEx'
     if (document.title !== title) {
@@ -1270,10 +1406,11 @@ export class App {
       for (const k of ['path', 'status', 'words', 'pos', 'kind', 'enc'] as const) this.el[k].textContent = ''
       return
     }
-    this.el.path.textContent = doc.path
-    this.el.path.title = doc.path
+    const shown = doc.loose === 'text' ? stem(doc.path) : doc.path
+    this.el.path.textContent = shown
+    this.el.path.title = shown
     const labels = { saved: 'Salvo', dirty: 'Não salvo', saving: 'Salvando…', error: 'Erro ao salvar' }
-    this.el.status.textContent = labels[doc.status]
+    this.el.status.textContent = doc.readOnly ? 'Somente leitura' : labels[doc.status]
     this.el.status.title = doc.error
     this.el.status.className = `st-${doc.status}`
     const words = countWords(doc.editor.plainText())

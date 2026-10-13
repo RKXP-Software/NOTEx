@@ -18,6 +18,8 @@ export interface NoteEditor {
   /** Substitui o conteúdo sem disparar onChange. */
   setText(text: string): void
   focus(): void
+  /** Somente leitura: o texto aparece e pode ser selecionado/copiado, mas não editado. */
+  setReadOnly(readOnly: boolean): void
   /** Rola até o trecho encontrado pela busca e o destaca. */
   reveal(target: RevealTarget): void
   setDark(dark: boolean): void

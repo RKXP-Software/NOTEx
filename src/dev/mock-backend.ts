@@ -255,7 +255,12 @@ function handle(cmd: string, a: Args): unknown {
       state.set(s('key'), s('json'))
       return null
     case 'plugin:dialog|open':
-      return null
+      // Escolher pasta: cancela. Escolher arquivo: um .md avulso fora dos cadernos.
+      return (a.options as { directory?: boolean } | undefined)?.directory ? null : [`C:${SEP}Users${SEP}voce${SEP}Downloads${SEP}avulso.md`]
+    case 'take_pending_open':
+      return []
+    case 'read_loose_note':
+      return { text: '# Arquivo avulso\n\nTexto só para ler, de fora dos cadernos.\n', format: { encoding: 'utf-8', bom: false, eol: 'lf' }, mtime: null }
     case 'sync_server_status':
       return {
         running: true,

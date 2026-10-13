@@ -1,5 +1,9 @@
 # Novidades do NOTEx
 
+## 0.5.1
+- Abrir arquivos .md e .txt avulsos, de fora dos cadernos, só para ler: pelo botão "Abrir" (Ctrl+O) ou "Abrir arquivo (só leitura)…" no menu do +, e também pelo "Abrir com" do Windows e do Android (e Compartilhar, no celular). Uma faixa no topo oferece "Editar" (arquivos do computador) e "Salvar em um caderno…" (copia para um caderno).
+- Nova nota (Ctrl+N ou ＋ Nota) agora nasce na mesma pasta da nota que está aberta. Sem nota aberta num caderno, vai para Rápidas.
+
 ## 0.5.0
 - Cadernos privados: no menu do caderno, "Tornar caderno privado…". As notas ficam cifradas no disco, no Google Drive e nos outros aparelhos; só abrem com a senha mestra (e, no celular, com o PIN, padrão ou digital do aparelho). No celular o caderno tranca ao sair do app. Sem a senha mestra não há como recuperar o conteúdo.
 - Instalador do Windows: se o NOTEx já estiver instalado, atualiza por cima sozinho, sem pedir para desinstalar a versão antiga.

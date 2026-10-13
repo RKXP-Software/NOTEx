@@ -1,7 +1,7 @@
 {
   "name": "notex",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Bloco de notas leve com abas, cadernos e sincronização",
   "author": "RKXP Software",
   "type": "module",

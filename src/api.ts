@@ -53,6 +53,8 @@ export interface WriteResult {
 }
 
 export const QUICK_NOTEBOOK_ID = 'rapidas'
+/** Evento: o programa foi aberto de novo com arquivos ("Abrir com"). */
+export const EVENT_OPEN_FILES = 'open-files'
 
 /** Trecho encontrado pela busca global. `line` 0 = o nome da nota. */
 export interface Hit {
@@ -108,6 +110,9 @@ export const api = {
   /** `expectedMtime`: se o arquivo mudou no disco desde então, falha com CONFLICT. */
   writeNote: (path: string, text: string, format: TextFormat, expectedMtime: number | null = null) =>
     invoke<WriteResult>('write_note', { path, text, format, expectedMtime }),
+  /** Lê um .md/.txt qualquer só para visualização (não o registra no NOTEx). */
+  readLooseNote: (path: string) => invoke<NoteContent>('read_loose_note', { path }),
+  takePendingOpen: () => invoke<string[]>('take_pending_open'),
   noteMtime: (path: string) => invoke<number | null>('note_mtime', { path }),
   openExternal: (path: string) => invoke<void>('open_external', { path }),
   notebooksRoot: () => invoke<string>('notebooks_root'),

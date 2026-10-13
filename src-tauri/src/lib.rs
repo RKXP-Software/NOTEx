@@ -15,10 +15,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use textfile::{Encoding, TextFormat};
 
 struct AppState {
+    /// Arquivos passados na linha de comando ("Abrir com"), que a interface busca ao iniciar.
+    pending_open: Mutex<Vec<PathBuf>>,
     /// Senha mestra e chaves dos cadernos privados (só na memória).
     vault: Mutex<vault::Vault>,
     /// Texto das notas em memória, para a busca global e o glossário.
@@ -588,6 +590,60 @@ fn define_term(app: AppHandle, state: State<AppState>, notebook: String, term: S
     Ok(path)
 }
 
+// ---- Arquivos avulsos (só leitura) ----
+
+/// Notas (.md/.txt) existentes entre os argumentos de linha de comando (caminhos relativos
+/// valem a partir de `cwd`). O primeiro argumento é o próprio programa.
+#[cfg(desktop)]
+fn note_args(args: &[String], cwd: Option<&str>) -> Vec<PathBuf> {
+    args.iter()
+        .skip(1)
+        .filter(|a| !a.starts_with('-'))
+        .filter_map(|a| {
+            let p = PathBuf::from(a);
+            let p = if p.is_absolute() { p } else { Path::new(cwd?).join(p) };
+            (p.is_file() && notebooks::is_note_file(&p)).then_some(p)
+        })
+        .collect()
+}
+
+fn initial_open_files() -> Vec<PathBuf> {
+    #[cfg(desktop)]
+    {
+        let cwd = std::env::current_dir().ok().and_then(|d| d.to_str().map(String::from));
+        note_args(&std::env::args().collect::<Vec<_>>(), cwd.as_deref())
+    }
+    #[cfg(mobile)]
+    Vec::new()
+}
+
+/// Arquivos pedidos na abertura do programa (duplo clique, "Abrir com"). Devolve cada um uma vez.
+#[tauri::command]
+fn take_pending_open(state: State<AppState>) -> Vec<PathBuf> {
+    state.pending_open.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default()
+}
+
+const MAX_LOOSE_BYTES: u64 = 10 * 1024 * 1024;
+
+/// Lê um .md/.txt qualquer do disco só para visualização: não o registra no NOTEx nem o autoriza
+/// para gravação (para editar, a interface chama `open_external`).
+#[tauri::command]
+fn read_loose_note(path: PathBuf) -> CmdResult<NoteContent> {
+    if !path.is_absolute() || !notebooks::is_note_file(&path) {
+        return Err("Só é possível abrir arquivos .md e .txt.".into());
+    }
+    let meta = fs::metadata(&path).map_err(|e| format!("Não foi possível abrir {}: {e}", path.display()))?;
+    if !meta.is_file() || meta.len() > MAX_LOOSE_BYTES {
+        return Err("Arquivo grande demais ou inválido (até 10 MB).".into());
+    }
+    let bytes = fs::read(&path).map_err(|e| format!("Não foi possível abrir {}: {e}", path.display()))?;
+    if vault::is_encrypted(&bytes) {
+        return Err("Esta nota é de um caderno privado e só abre dentro do NOTEx, com a senha.".into());
+    }
+    let d = textfile::decode(&bytes);
+    Ok(NoteContent { text: d.text, format: d.format, mtime: None })
+}
+
 // ---- Notas e pastas ----
 
 #[tauri::command]
@@ -849,6 +905,7 @@ fn init_state(app: &AppHandle) -> Result<AppState, Box<dyn std::error::Error>> {
     }
     let state = AppState {
         index: Mutex::new(index::Index::default()),
+        pending_open: Mutex::new(initial_open_files()),
         vault: Mutex::new(vault::Vault::default()),
         config: Mutex::new(Config::default()),
         config_file,
@@ -904,7 +961,12 @@ pub fn run() {
     let builder = tauri::Builder::default();
     // Precisa ser o primeiro plugin: uma segunda abertura só foca a janela que já existe.
     #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        // Outra abertura com arquivos ("Abrir com"): entrega à janela que já existe.
+        let files = note_args(&args, Some(&cwd));
+        if !files.is_empty() {
+            let _ = app.emit("open-files", files);
+        }
         if let Some(w) = app.get_webview_window("main") {
             let _ = w.unminimize();
             let _ = w.show();
@@ -946,6 +1008,8 @@ pub fn run() {
             vault_forget,
             vault_make_private,
             vault_make_public,
+            take_pending_open,
+            read_loose_note,
             search_notes,
             list_terms,
             define_term,
@@ -993,5 +1057,43 @@ mod portable_tests {
         rebase_portable(&mut cfg, &root);
         assert_eq!(cfg.notebooks[0].path, root.join("Trabalho"));
         assert_eq!(cfg.root, None);
+    }
+}
+
+#[cfg(all(test, desktop))]
+mod loose_tests {
+    use super::*;
+
+    #[test]
+    fn argumentos_so_aceitam_notas_existentes() {
+        let dir = tempfile::tempdir().unwrap();
+        let md = dir.path().join("a.md");
+        let txt = dir.path().join("b.txt");
+        fs::write(&md, "x").unwrap();
+        fs::write(&txt, "y").unwrap();
+        fs::write(dir.path().join("c.png"), "z").unwrap();
+        let cwd = dir.path().to_str().unwrap();
+        let args: Vec<String> = ["notex.exe", "--flag", md.to_str().unwrap(), "b.txt", "c.png", "nao-existe.md"].map(String::from).to_vec();
+        assert_eq!(note_args(&args, Some(cwd)), vec![md, txt]);
+        assert!(note_args(&args, None).len() == 1, "sem pasta de trabalho, relativos são ignorados");
+    }
+
+    #[test]
+    fn leitura_avulsa_recusa_cifrado_e_outros_tipos() {
+        let dir = tempfile::tempdir().unwrap();
+        let ok = dir.path().join("n.md");
+        fs::write(&ok, "# Olá\r\nmundo").unwrap();
+        let r = read_loose_note(ok).unwrap();
+        assert_eq!(r.text, "# Olá\nmundo");
+        assert!(r.mtime.is_none());
+
+        let cifrado = dir.path().join("p.md");
+        fs::write(&cifrado, vault::encrypt(&[1u8; 32], b"segredo")).unwrap();
+        assert!(read_loose_note(cifrado).is_err());
+
+        let img = dir.path().join("f.png");
+        fs::write(&img, "x").unwrap();
+        assert!(read_loose_note(img).is_err());
+        assert!(read_loose_note(PathBuf::from("relativo.md")).is_err());
     }
 }
