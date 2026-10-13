@@ -52,3 +52,16 @@ A fase 5 (glossário) fica em espera.
 
 - Uma **senha mestra** das pastas privadas, definida uma vez. No celular o PIN/biometria do Android libera a senha guardada no aparelho; no PC digita-se a senha (ou Windows Hello).
 - Arquivos cifrados no disco e no Drive; busca e glossário não indexam o conteúdo de pastas privadas enquanto bloqueadas.
+
+## Bug adicional na 0.5.0: pastas do caderno não são alteradas/excluídas no disco do PC
+
+Relato (com print): no desktop, pastas excluídas no app continuam em `C:\Users\Public\Documents\NOTEx` (`Abc`, `sfdfsdf`, `T`, `tttt`), e também aparecem cópias `Abc (2)`, `sfdfsdf (2)`, `tttt (2)`.
+
+Causas prováveis (a confirmar na hora de corrigir):
+- `remove_notebook` e `forget_notebook` só tiram o caderno da lista; a pasta fica no disco por projeto ("os arquivos continuam"). Para quem usa "Excluir", isso parece que não excluiu.
+- As cópias `(2)` vêm do defeito já corrigido na 0.4.2: o Drive recriava o caderno removido, e `unique_path` criava outra pasta com sufixo.
+
+Correção planejada:
+- Ao excluir um caderno, perguntar: **"Só tirar da lista"** ou **"Apagar a pasta"** (vai para a Lixeira do Windows, não some de vez). Vale também para exclusões que chegam pela sincronização.
+- Conferir se renomear caderno/pasta renomeia no disco e se as exclusões e renomeações de subpastas vindas do Drive/celular chegam ao disco do PC (inclusive com `.lixeira` e `.notex.json` dentro).
+- Teste automático para cada caso. A limpeza manual das pastas `(2)` antigas fica por sua conta (o app não apaga pastas sozinho).
