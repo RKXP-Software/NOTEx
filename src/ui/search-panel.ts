@@ -3,6 +3,7 @@
 import { api, type Hit, type Notebook, type Term } from '../api'
 import { fold } from '../fold'
 import type { RevealTarget } from '../editors/reveal'
+import { termIndex } from '../glossary'
 
 export interface SearchPanelActions {
   openAt(path: string, target: RevealTarget): void
@@ -35,6 +36,7 @@ export class SearchPanel {
   private readonly results: HTMLElement
   private readonly tabButtons = new Map<Tab, HTMLButtonElement>()
   private readonly addBtn: HTMLButtonElement
+  private readonly toggleRow: HTMLLabelElement
   private timer: number | undefined
   private seq = 0
   private terms: Term[] = []
@@ -79,6 +81,13 @@ export class SearchPanel {
     this.scope.addEventListener('change', () => this.schedule(0))
     const bar = el('div', 'search-bar')
     bar.append(this.input, this.scope)
+    this.toggleRow = el('label', 'modal-check')
+    const toggle = el('input')
+    toggle.type = 'checkbox'
+    toggle.checked = termIndex.enabled
+    toggle.addEventListener('change', () => termIndex.setEnabled(toggle.checked))
+    this.toggleRow.append(toggle, ' Destacar os termos nas notas')
+    bar.append(this.toggleRow)
 
     this.results = el('div', 'search-results')
     this.root.append(head, bar, this.results)
@@ -113,6 +122,7 @@ export class SearchPanel {
     for (const [t, b] of this.tabButtons) b.classList.toggle('active', t === tab)
     this.input.placeholder = tab === 'search' ? 'Buscar em todas as notas…' : 'Filtrar termos…'
     this.addBtn.hidden = tab !== 'glossary'
+    this.toggleRow.hidden = tab !== 'glossary'
     this.schedule(0)
   }
 

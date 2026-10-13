@@ -11,6 +11,10 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import type { EditorEvents, NoteEditor } from './types'
 import { flash, type RevealTarget } from './reveal'
 import { findFolded } from '../fold'
+import { termIndex } from '../glossary'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import type { Node as PMNode } from '@tiptap/pm/model'
 
 const SAFE_LINK = /^(https?:|mailto:)/i
 
@@ -97,11 +101,56 @@ const IndentKeys = Extension.create({
     }
   }
 })
+const termsKey = new PluginKey<DecorationSet>('notex-terms')
+
+/** Texto de um parágrafo com o mesmo tamanho do conteúdo (código e itens que não são texto viram "￼"). */
+function blockText(node: PMNode): string {
+  let text = ''
+  node.forEach((child) => {
+    if (child.isText) text += child.marks.some((m) => m.type.name === 'code') ? '￼'.repeat(child.nodeSize) : child.text
+    else text += '￼'.repeat(child.nodeSize)
+  })
+  return text
+}
+
+function termDecorations(doc: PMNode): DecorationSet {
+  const matcher = termIndex.active()
+  if (!matcher) return DecorationSet.empty
+  const decos: Decoration[] = []
+  doc.descendants((node, pos) => {
+    if (node.type.name === 'codeBlock') return false
+    if (!node.isTextblock) return true
+    for (const h of matcher.find(blockText(node))) {
+      decos.push(Decoration.inline(pos + 1 + h.from, pos + 1 + h.to, { class: 'term-hit', 'data-term': h.key }))
+    }
+    return false
+  })
+  return DecorationSet.create(doc, decos)
+}
+
+/** Sublinha as palavras que são termos do glossário. Recalcula quando o texto ou a lista de termos muda. */
+const TermHighlight = Extension.create({
+  name: 'termHighlight',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin<DecorationSet>({
+        key: termsKey,
+        state: {
+          init: (_, state) => termDecorations(state.doc),
+          apply: (tr, old) => (tr.docChanged || tr.getMeta(termsKey) ? termDecorations(tr.doc) : old)
+        },
+        props: { decorations: (state) => termsKey.getState(state) }
+      })
+    ]
+  }
+})
+
 export class VisualEditor implements NoteEditor {
   readonly kind = 'visual' as const
   readonly dom: HTMLElement
   readonly editor: Editor
   private silent = false
+  private readonly offTerms: () => void
 
   constructor(text: string, events: EditorEvents) {
     this.dom = document.createElement('div')
@@ -121,6 +170,7 @@ export class VisualEditor implements NoteEditor {
         TableKit.configure({ table: { resizable: false } }),
         Placeholder.configure({ placeholder: 'Escreva sua nota…' }),
         IndentKeys,
+        TermHighlight,
         Markdown
       ],
       content: text,
@@ -142,6 +192,7 @@ export class VisualEditor implements NoteEditor {
       onSelectionUpdate: () => events.onSelection(),
       onTransaction: () => events.onSelection()
     })
+    this.offTerms = termIndex.subscribe(() => this.editor.view.dispatch(this.editor.state.tr.setMeta(termsKey, true)))
     this.settle()
   }
 
@@ -215,6 +266,7 @@ export class VisualEditor implements NoteEditor {
   }
 
   destroy(): void {
+    this.offTerms()
     this.editor.destroy()
   }
 }

@@ -3,6 +3,8 @@
 import { bindPinch, bindViewport } from './ui/viewport'
 import { showNovidades, showNovidadesIfNew } from './ui/novidades'
 import { SearchPanel } from './ui/search-panel'
+import { termIndex } from './glossary'
+import { showTermCard } from './ui/term-card'
 import type { RevealTarget } from './editors/reveal'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
@@ -203,6 +205,8 @@ export class App {
 
     this.bindSidebarResizer()
     this.bindZoom()
+    this.bindTermClicks()
+    this.scheduleTerms(0)
     bindViewport()
     bindPinch(this.el.workspace, (d) => this.zoomStep(d))
     const v = document.getElementById('st-version')
@@ -235,6 +239,7 @@ export class App {
   /** A sincronização gravou ou apagou arquivos: atualiza abas abertas e a barra lateral. */
   private async onFilesChanged(ev: FilesChanged): Promise<void> {
     this.search.refresh()
+    this.scheduleTerms()
     for (const path of ev.removed) {
       const doc = this.findDoc(path)
       // Com edição não salva, mantém aberta: ao salvar, a nota volta a existir.
@@ -395,6 +400,7 @@ export class App {
       if (doc === this.activeDoc()) this.queueStatus()
     },
     saved: async (doc: Doc) => {
+      this.scheduleTerms()
       if (doc.autoName && firstLineDone(doc.text())) await this.applyAutoName(doc)
     },
     conflict: async (doc: Doc, text: string) => {
@@ -762,6 +768,7 @@ export class App {
       }
       await this.reloadNotebooks()
       this.search.refresh()
+      this.scheduleTerms(0)
       return true
     } catch (e) {
       toast(errorMessage(e), 'error')
@@ -777,6 +784,7 @@ export class App {
       await api.vaultLock()
       await this.reloadNotebooks()
       this.search.refresh()
+      this.scheduleTerms(0)
     } catch (e) {
       toast(errorMessage(e), 'error')
     }
@@ -1025,6 +1033,27 @@ export class App {
     this.scheduleSession()
   }
 
+  private termsTimer: number | undefined
+
+  /** Relê os termos do glossário (depois de salvar, sincronizar ou trancar/destrancar). */
+  private scheduleTerms(delay = 1500): void {
+    window.clearTimeout(this.termsTimer)
+    this.termsTimer = window.setTimeout(() => {
+      api.listTerms().then((t) => termIndex.set(t)).catch(() => undefined)
+    }, delay)
+  }
+
+  /** Clique numa palavra destacada: mostra a definição. */
+  private bindTermClicks(): void {
+    this.el.workspace.addEventListener('click', (e) => {
+      const el = (e.target as HTMLElement | null)?.closest?.<HTMLElement>('.term-hit')
+      const key = el?.dataset.term
+      if (!el || !key) return
+      const defs = termIndex.active()?.definitions(key) ?? []
+      showTermCard(el.getBoundingClientRect(), defs, (t) => void this.openAt(t.path, { line: t.line, query: t.term, occurrence: 0 }))
+    })
+  }
+
   /** Texto selecionado na nota ativa, numa linha só (vazio se a seleção for grande demais). */
   private selectedText(): string {
     const t = (window.getSelection()?.toString() ?? '').replace(/\s+/g, ' ').trim()
@@ -1069,6 +1098,7 @@ export class App {
       await this.refreshTrees()
       await this.findDoc(path)?.reloadIfChanged().catch(() => undefined)
       this.search.refresh()
+      this.scheduleTerms(0)
       const where = this.notebooks.find((n) => n.id === r.notebookId)?.name ?? nb.name
       toast(`Termo salvo em ${where} › Glossário.`)
     } catch (e) {

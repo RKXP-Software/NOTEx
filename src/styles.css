@@ -1016,6 +1016,62 @@ body.resizing-row * {
   color: var(--fg-muted);
   overflow-wrap: anywhere;
 }
+.term-hit {
+  text-decoration: underline dotted var(--accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+.term-hit:hover {
+  background: var(--accent-soft);
+}
+.term-card {
+  position: fixed;
+  z-index: 80;
+  width: min(360px, calc(100vw - 16px));
+  max-height: min(50vh, 360px);
+  overflow-y: auto;
+  padding: 10px 12px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.term-card-item + .term-card-item {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.term-card-def {
+  margin: 4px 0 6px;
+  white-space: pre-wrap;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.term-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.term-card-foot small {
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.term-card-foot button {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-subtle);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
 .modal-error {
   min-height: 1.2em;
   margin: 6px 0 0;

@@ -5,6 +5,7 @@
 - Instalador do Windows: se o NOTEx já estiver instalado, atualiza por cima sozinho, sem pedir para desinstalar a versão antiga.
 - Busca em todas as notas (Ctrl+Shift+F, ou o ícone 🔍 na barra lateral): ignora acentos e maiúsculas, mostra o trecho e abre a nota já no ponto encontrado.
 - Glossário (Ctrl+Shift+G, ou 📖): lista os termos definidos nas suas notas, com filtro por caderno. Defina um termo escrevendo `**Termo**: definição` ou `Termo:: definição` em qualquer nota, ou pelo botão 📖 da barra de funções (Ctrl+Shift+D), que abre uma janela com campo de termo, caixa de texto grande para a definição (várias linhas) e escolha do caderno.
+- Termos destacados nas notas: as palavras que têm definição no glossário ficam sublinhadas com pontinhos (sem se importar com acento e maiúsculas). Toque ou clique para ler a definição num cartão, com atalho para a nota onde ela foi escrita. Dá para desligar no painel do glossário.
 - Janela "Novidades": toque na versão, na barra inferior, para ver o que mudou. Ela abre sozinha depois de uma atualização.
 - Excluir caderno agora pergunta se a pasta também deve ser apagada (vai para a Lixeira). Renomear um caderno renomeia a pasta no disco, e as duas coisas chegam aos outros aparelhos.
 - Cadernos removidos em um aparelho saem da lista e da pasta dos outros (para a Lixeira).
