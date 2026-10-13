@@ -30,6 +30,9 @@ pub struct SyncBase {
     /// Cadernos que já existiram nos dois lados (sumir do PC = foi removido lá).
     #[serde(default)]
     pub known: BTreeSet<String>,
+    /// Nome de cada caderno na última sincronização (detecta quem renomeou).
+    #[serde(default)]
+    pub names: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Default)]
@@ -95,6 +98,7 @@ fn sync_once(local: &dyn Host, remote: &mut dyn Remote, base: &mut SyncBase, opt
                 expect_ok(remote.call(Request::DeleteNotebook { id: r.id.clone() })?)?;
                 base.known.remove(&r.id);
                 base.notebooks.remove(&r.id);
+                base.names.remove(&r.id);
                 continue;
             }
             local.create_notebook(&r.id, &r.name)?;
@@ -110,10 +114,25 @@ fn sync_once(local: &dyn Host, remote: &mut dyn Remote, base: &mut SyncBase, opt
             local.forget_notebook(&l.id);
             base.known.remove(&l.id);
             base.notebooks.remove(&l.id);
+            base.names.remove(&l.id);
         } else {
             expect_ok(remote.call(Request::CreateNotebook { id: l.id.clone(), name: l.name.clone() })?)?;
             base.known.insert(l.id.clone());
+            base.names.insert(l.id.clone(), l.name.clone());
         }
+    }
+
+    // Nomes: quem mudou desde a última sincronização vence; mudando nos dois, vale o do PC (remoto).
+    for r in &remote_nbs {
+        let Some((l, _)) = local_nbs.iter().find(|(l, _)| l.id == r.id) else { continue };
+        let before = base.names.get(&r.id);
+        if l.name == r.name {
+        } else if before == Some(&r.name) {
+            expect_ok(remote.call(Request::RenameNotebook { id: l.id.clone(), name: l.name.clone() })?)?;
+        } else {
+            local.rename_notebook(&r.id, &r.name);
+        }
+        base.names.insert(r.id.clone(), if before == Some(&r.name) { l.name.clone() } else { r.name.clone() });
     }
 
     let mut out = Outcome::default();

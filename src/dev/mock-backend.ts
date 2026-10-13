@@ -2,6 +2,7 @@
 // durante o desenvolvimento (`npm run dev` fora do Tauri). Não entra no build de produção.
 
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
+import { fold } from '../fold'
 
 type Args = Record<string, unknown>
 const ROOT = 'C:\\Users\\voce\\Documents\\NOTEx'
@@ -106,11 +107,61 @@ function handle(cmd: string, a: Args): unknown {
     case 'rename_notebook': {
       const nb = notebooks.find((n) => n.id === s('id'))
       if (nb) nb.name = s('name')
-      return null
+      return nb
     }
     case 'remove_notebook':
       notebooks.splice(notebooks.findIndex((n) => n.id === s('id')), 1)
       return null
+    case 'search_notes': {
+      const q = fold(s('query'))
+      const only = a.notebook as string | null
+      const hits: unknown[] = []
+      for (const nb of notebooks) {
+        if (only && nb.id !== only) continue
+        for (const [p, f] of files) {
+          if (!within(nb.path, p) || base(p).startsWith('.')) continue
+          let occurrence = 0
+          f.text.split('\n').forEach((line, i) => {
+            const at = fold(line).indexOf(q)
+            if (q && at >= 0) {
+              hits.push({
+                notebookId: nb.id,
+                notebookName: nb.name,
+                path: p,
+                rel: p.slice(nb.path.length + 1).split(SEP).join('/'),
+                line: i + 1,
+                occurrence: occurrence++,
+                before: line.slice(0, at),
+                hit: line.slice(at, at + q.length),
+                after: line.slice(at + q.length)
+              })
+            }
+          })
+        }
+      }
+      return hits
+    }
+    case 'list_terms': {
+      const out: unknown[] = []
+      for (const nb of notebooks) {
+        for (const [p, f] of files) {
+          if (!within(nb.path, p)) continue
+          f.text.split('\n').forEach((line, i) => {
+            const m = /^\*\*(.+?)\*\*:\s*(.+)$/.exec(line) ?? /^(.+?):: (.+)$/.exec(line)
+            if (m) out.push({ term: m[1], definition: m[2], notebookId: nb.id, notebookName: nb.name, path: p, line: i + 1 })
+          })
+        }
+      }
+      return out
+    }
+    case 'define_term': {
+      const nb = notebooks.find((n) => n.id === s('notebook'))
+      if (!nb) throw new Error('Caderno não encontrado.')
+      const p = `${nb.path}${SEP}Glossário.md`
+      const old = files.get(p)?.text ?? '# Glossário\n\n'
+      files.set(p, { text: `${old}**${s('term')}**: ${s('definition')}\n`, mtime: Date.now() })
+      return p
+    }
     case 'list_tree': {
       const nb = notebooks.find((n) => n.id === s('id'))
       return nb ? tree(nb.path) : []

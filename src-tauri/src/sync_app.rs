@@ -64,19 +64,35 @@ impl Host for AppHost {
         if id == notebooks::QUICK_NOTEBOOK_ID {
             return;
         }
+        // Removido do outro lado: sai da lista e a pasta vai para a Lixeira.
         let state = self.app.state::<AppState>();
-        let _ = state.with_config(
-            |cfg| {
-                cfg.notebooks.retain(|n| n.id != id);
-                Ok(())
-            },
-            true,
-        );
+        let path = state
+            .with_config(
+                |cfg| {
+                    let path = cfg.notebook(id).ok().map(|n| n.path.clone());
+                    cfg.notebooks.retain(|n| n.id != id);
+                    Ok(path)
+                },
+                true,
+            )
+            .ok()
+            .flatten();
+        if let Some(path) = path {
+            crate::discard_dir(&state.state_dir, &path);
+        }
+    }
+
+    fn rename_notebook(&self, id: &str, name: &str) {
+        let state = self.app.state::<AppState>();
+        let _ = crate::rename_notebook_inner(&state, id, name);
     }
 
     fn changed(&self, changed: Vec<PathBuf>, removed: Vec<PathBuf>) {
         if changed.is_empty() && removed.is_empty() {
             return;
+        }
+        if let Ok(mut idx) = self.app.state::<AppState>().index.lock() {
+            idx.invalidate();
         }
         let _ = self.app.emit(EVENT_FILES, FilesChanged { changed, removed });
         // No PC, avisa os outros celulares que algo mudou.

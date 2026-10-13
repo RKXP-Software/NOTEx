@@ -106,6 +106,8 @@ pub enum Request {
     CreateNotebook { id: String, name: String },
     /// Remove o caderno da lista do outro lado (no Drive, a pasta vai para a lixeira).
     DeleteNotebook { id: String },
+    /// Muda o nome do caderno do outro lado.
+    RenameNotebook { id: String, name: String },
     Manifest { notebook: String },
     Get { notebook: String, path: String },
     /// `expected`: hash que o cliente acha que o PC tem (None = o arquivo não deve existir).

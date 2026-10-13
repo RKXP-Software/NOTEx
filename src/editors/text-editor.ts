@@ -9,6 +9,8 @@ import { searchKeymap, highlightSelectionMatches } from '@codemirror/search'
 import { markdown } from '@codemirror/lang-markdown'
 import { oneDark } from '@codemirror/theme-one-dark'
 import type { EditorEvents, NoteEditor } from './types'
+import { flash, type RevealTarget } from './reveal'
+import { findFolded } from '../fold'
 
 // Tema claro coerente com as variáveis CSS do app (o escuro usa oneDark).
 const lightTheme = EditorView.theme(
@@ -105,6 +107,16 @@ export class TextEditor implements NoteEditor {
 
   focus(): void {
     this.view.focus()
+  }
+
+  reveal(t: RevealTarget): void {
+    if (t.line < 1) return
+    const doc = this.view.state.doc
+    const line = doc.line(Math.min(t.line, doc.lines))
+    const hit = findFolded(line.text, t.query)
+    const [from, to] = hit ? [line.from + hit[0], line.from + hit[1]] : [line.from, line.from]
+    this.view.dispatch({ selection: { anchor: from, head: to }, effects: EditorView.scrollIntoView(from, { y: 'center' }) })
+    if (to > from) window.setTimeout(() => flash(this.view.domAtPos(from), this.view.domAtPos(to)), 50)
   }
 
   setDark(dark: boolean): void {

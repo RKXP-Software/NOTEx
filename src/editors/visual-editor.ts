@@ -9,6 +9,8 @@ import { TableKit } from '@tiptap/extension-table'
 import { Markdown } from '@tiptap/markdown'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import type { EditorEvents, NoteEditor } from './types'
+import { flash, type RevealTarget } from './reveal'
+import { findFolded } from '../fold'
 
 const SAFE_LINK = /^(https?:|mailto:)/i
 
@@ -177,6 +179,26 @@ export class VisualEditor implements NoteEditor {
 
   focus(): void {
     this.editor.commands.focus()
+  }
+
+  reveal(t: RevealTarget): void {
+    if (t.line < 1) return
+    // O Markdown tem uma linha por bloco; acha o bloco de mesma ordem entre os que têm o termo.
+    const blocks: { pos: number; text: string; range: [number, number] }[] = []
+    this.editor.state.doc.descendants((node, pos) => {
+      if (!node.isTextblock) return true
+      const text = node.textBetween(0, node.content.size, '\n', '\ufffc')
+      const range = findFolded(text, t.query)
+      if (range) blocks.push({ pos, text, range })
+      return false
+    })
+    const b = blocks[Math.min(t.occurrence, blocks.length - 1)]
+    if (!b) return
+    const from = b.pos + 1 + b.range[0]
+    const to = b.pos + 1 + b.range[1]
+    this.editor.chain().setTextSelection({ from, to }).scrollIntoView().run()
+    // Depois do layout (o rolar acontece antes), para o destaque achar o texto já desenhado.
+    window.setTimeout(() => flash(this.editor.view.domAtPos(from), this.editor.view.domAtPos(to)), 50)
   }
 
   setDark(): void {

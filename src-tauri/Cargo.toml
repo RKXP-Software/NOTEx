@@ -28,6 +28,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Sincronização: criptografia, hash, codificação e cliente HTTP (TLS para o Google Drive; na rede local o conteúdo já vai cifrado).
 chacha20poly1305 = "0.10"
+unicode-normalization = "0.1"
 sha2 = "0.10"
 base64 = "0.22"
 rand = "0.8"
@@ -41,6 +42,8 @@ if-addrs = "0.13"
 hostname = "0.4"
 # Abrir o NOTEx de novo traz a janela existente (evita duas cópias disputando a porta 47800).
 tauri-plugin-single-instance = "2"
+# Excluir pasta de caderno: vai para a Lixeira do Windows.
+trash = "5"
 
 # Leitura do QR code pela câmera: só no celular.
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]

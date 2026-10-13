@@ -1,5 +1,7 @@
 // Contrato comum dos editores (visual e texto), usado pelas abas.
 
+import type { RevealTarget } from './reveal'
+
 export interface EditorEvents {
   /** O usuário alterou o conteúdo (não dispara em setText). */
   onChange(): void
@@ -16,6 +18,8 @@ export interface NoteEditor {
   /** Substitui o conteúdo sem disparar onChange. */
   setText(text: string): void
   focus(): void
+  /** Rola até o trecho encontrado pela busca e o destaca. */
+  reveal(target: RevealTarget): void
   setDark(dark: boolean): void
   /** Remede o layout (após mudar o tamanho da fonte, ex.: zoom). */
   remeasure(): void

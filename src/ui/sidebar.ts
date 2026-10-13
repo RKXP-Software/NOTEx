@@ -26,6 +26,8 @@ export interface SidebarActions {
   reveal(path: string): void
   /** Estado de expansão mudou (salvar na sessão). */
   expandedChanged(): void
+  /** Abrir o painel de busca ou o glossário. */
+  openSearch(tab: 'search' | 'glossary'): void
 }
 
 export class Sidebar {
@@ -64,6 +66,17 @@ export class Sidebar {
           : [])
       ])
     })
+    const tool = (label: string, title: string, tab: 'search' | 'glossary'): void => {
+      const b = document.createElement('button')
+      b.className = 'icon-btn'
+      b.title = title
+      b.setAttribute('aria-label', title)
+      b.textContent = label
+      b.addEventListener('click', () => actions.openSearch(tab))
+      head.appendChild(b)
+    }
+    tool('🔍', 'Buscar em todas as notas (Ctrl+Shift+F)', 'search')
+    tool('📖', 'Glossário (Ctrl+Shift+G)', 'glossary')
     head.appendChild(add)
     this.list = document.createElement('div')
     this.list.className = 'tree'
@@ -166,7 +179,7 @@ export class Sidebar {
         { label: 'Mover caderno para outra pasta…', action: () => this.actions.moveNotebook(nb) },
         { label: 'Abrir pasta no Explorer', action: () => this.actions.reveal(nb.path) }
       ]),
-      { label: 'Remover da lista', disabled: quick, action: () => this.actions.removeNotebook(nb) }
+      { label: 'Excluir caderno…', disabled: quick, action: () => this.actions.removeNotebook(nb) }
     ]
   }
 

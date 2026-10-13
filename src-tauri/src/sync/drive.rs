@@ -52,6 +52,7 @@ pub trait DriveApi {
     fn create(&mut self, file: NewFile<'_>, data: Option<&[u8]>) -> Result<DriveFile, String>;
     fn update(&mut self, id: &str, props: BTreeMap<String, String>, data: &[u8]) -> Result<(), String>;
     fn trash(&mut self, id: &str) -> Result<(), String>;
+    fn rename(&mut self, id: &str, name: &str) -> Result<(), String>;
 }
 
 fn props(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
@@ -200,6 +201,12 @@ impl<A: DriveApi> DriveRemote<A> {
                 }
                 Response::Ok
             }
+            Request::RenameNotebook { id, name } => {
+                if let Ok(folder) = self.notebook_folder(&id) {
+                    self.api.rename(&folder, &name)?;
+                }
+                Response::Ok
+            }
             Request::DeleteNotebook { id } => {
                 if let Ok(folder) = self.notebook_folder(&id) {
                     self.api.trash(&folder)?;
@@ -337,6 +344,11 @@ pub mod fake {
             self.files.iter_mut().find(|(f, _, _)| f.id == id).ok_or("404")?.2 = true;
             Ok(())
         }
+        fn rename(&mut self, id: &str, name: &str) -> Result<(), String> {
+            self.calls += 1;
+            self.files.iter_mut().find(|(f, _, _)| f.id == id).ok_or("404")?.0.name = name.into();
+            Ok(())
+        }
     }
 }
 
@@ -384,6 +396,11 @@ mod tests {
         }
         fn forget_notebook(&self, id: &str) {
             self.nbs.borrow_mut().retain(|n| n.id != id);
+        }
+        fn rename_notebook(&self, id: &str, name: &str) {
+            if let Some(n) = self.nbs.borrow_mut().iter_mut().find(|n| n.id == id) {
+                n.name = name.into();
+            }
         }
         fn changed(&self, _: Vec<PathBuf>, _: Vec<PathBuf>) {}
     }
@@ -451,6 +468,31 @@ mod tests {
         assert!(!pc.nbs.borrow().iter().any(|n| n.id == "trab"));
         sync(&phone, &mut drive, &mut bphone);
         assert!(!phone.nbs.borrow().iter().any(|n| n.id == "trab"));
+    }
+
+    #[test]
+    fn renomear_caderno_chega_ao_outro_aparelho_e_ao_drive() {
+        let (pc, phone) = (Device::new(), Device::new());
+        let (mut bpc, mut bphone) = (SyncBase::default(), SyncBase::default());
+        let mut drive = DriveRemote::new(FakeDrive::default());
+        pc.create_notebook("trab", "Trabalho").unwrap();
+        sync(&pc, &mut drive, &mut bpc);
+        sync(&phone, &mut drive, &mut bphone);
+        let name_of = |d: &Device| d.nbs.borrow().iter().find(|n| n.id == "trab").unwrap().name.clone();
+        assert_eq!(name_of(&phone), "Trabalho");
+
+        pc.rename_notebook("trab", "Projetos");
+        sync(&pc, &mut drive, &mut bpc);
+        assert!(drive.api.names().contains(&"Projetos".to_string()));
+        assert!(!drive.api.names().contains(&"Trabalho".to_string()));
+        sync(&phone, &mut drive, &mut bphone);
+        assert_eq!(name_of(&phone), "Projetos");
+
+        // E no sentido contrário.
+        phone.rename_notebook("trab", "Estudos");
+        sync(&phone, &mut drive, &mut bphone);
+        sync(&pc, &mut drive, &mut bpc);
+        assert_eq!(name_of(&pc), "Estudos");
     }
 
     #[test]

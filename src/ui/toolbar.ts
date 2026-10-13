@@ -12,6 +12,7 @@ export interface ToolbarActions {
   splitRight(): void
   splitDown(): void
   toggleTheme(): void
+  defineTerm(): void
 }
 
 interface FormatButton {
@@ -101,6 +102,7 @@ export class Toolbar {
       this.formatButtons.set(def.id, { btn: b, def })
     }
     this.rawBtn = btn('MD', 'Alternar editor visual / Markdown cru (Ctrl+Shift+M)', actions.toggleRaw, 'fmt-raw')
+    btn('📖', 'Definir termo no glossário (Ctrl+Shift+D)', actions.defineTerm, 'icon')
     target = end
     if (desktop) {
       btn('⫴', 'Dividir à direita (Ctrl+\\)', actions.splitRight, 'icon')

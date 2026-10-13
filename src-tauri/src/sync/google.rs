@@ -323,6 +323,12 @@ impl DriveApi for GoogleDrive {
         Ok(())
     }
 
+    fn rename(&mut self, id: &str, name: &str) -> Result<(), String> {
+        let url = format!("{API}/files/{}?fields=id", enc(id));
+        self.call(|a, auth| a.request("PATCH", &url).set("Authorization", auth).send_json(serde_json::json!({ "name": name })))?;
+        Ok(())
+    }
+
     fn trash(&mut self, id: &str) -> Result<(), String> {
         let url = format!("{API}/files/{}?fields=id", enc(id));
         self.call(|a, auth| a.request("PATCH", &url).set("Authorization", auth).send_json(serde_json::json!({ "trashed": true })))?;

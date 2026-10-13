@@ -43,6 +43,29 @@ export interface WriteResult {
 
 export const QUICK_NOTEBOOK_ID = 'rapidas'
 
+/** Trecho encontrado pela busca global. `line` 0 = o nome da nota. */
+export interface Hit {
+  notebookId: string
+  notebookName: string
+  path: string
+  rel: string
+  line: number
+  occurrence: number
+  before: string
+  hit: string
+  after: string
+}
+
+/** Termo definido numa nota (`**Termo**: definição` ou `Termo:: definição`). */
+export interface Term {
+  term: string
+  definition: string
+  notebookId: string
+  notebookName: string
+  path: string
+  line: number
+}
+
 export const api = {
   getNotebooks: () => invoke<Notebook[]>('get_notebooks'),
   createNotebook: (name: string, parent: string | null = null) => invoke<Notebook>('create_notebook', { name, parent }),
@@ -51,8 +74,11 @@ export const api = {
   setRoot: (path: string | null) => invoke<RootSettings>('set_root', { path }),
   setIcon: (path: string, icon: string | null) => invoke<void>('set_icon', { path, icon }),
   addNotebook: (path: string) => invoke<Notebook>('add_notebook', { path }),
-  renameNotebook: (id: string, name: string) => invoke<void>('rename_notebook', { id, name }),
-  removeNotebook: (id: string) => invoke<void>('remove_notebook', { id }),
+  renameNotebook: (id: string, name: string) => invoke<Notebook>('rename_notebook', { id, name }),
+  removeNotebook: (id: string, deleteFiles = false) => invoke<void>('remove_notebook', { id, deleteFiles }),
+  searchNotes: (query: string, notebook: string | null = null) => invoke<Hit[]>('search_notes', { query, notebook }),
+  listTerms: () => invoke<Term[]>('list_terms'),
+  defineTerm: (notebook: string, term: string, definition: string) => invoke<string>('define_term', { notebook, term, definition }),
   listTree: (id: string) => invoke<TreeEntry[]>('list_tree', { id }),
   createNote: (dir: string, title: string, ext: 'md' | 'txt') => invoke<string>('create_note', { dir, title, ext }),
   createFolder: (parent: string, name: string) => invoke<string>('create_folder', { parent, name }),

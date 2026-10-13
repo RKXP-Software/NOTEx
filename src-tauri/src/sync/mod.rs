@@ -23,6 +23,8 @@ pub trait Host {
     fn create_notebook(&self, id: &str, name: &str) -> Result<PathBuf, String>;
     /// Tira o caderno da lista (os arquivos ficam).
     fn forget_notebook(&self, id: &str);
+    /// Muda o nome do caderno (e da pasta, se o aparelho fizer isso).
+    fn rename_notebook(&self, _id: &str, _name: &str) {}
     /// Arquivos alterados/removidos por uma sincronização (atualiza a interface).
     fn changed(&self, changed: Vec<PathBuf>, removed: Vec<PathBuf>);
 }
@@ -53,6 +55,10 @@ fn handle_inner(host: &dyn Host, req: Request) -> Result<Response, String> {
                 return Err("Id de caderno inválido.".into());
             }
             host.create_notebook(&id, &name)?;
+            Response::Ok
+        }
+        Request::RenameNotebook { id, name } => {
+            host.rename_notebook(&id, &name);
             Response::Ok
         }
         Request::DeleteNotebook { id } => {

@@ -1,6 +1,7 @@
 // Núcleo do NOTEx: comandos chamados pela interface (invoke). Os erros voltam como mensagens
 // em português, prontas para exibir.
 
+mod index;
 mod meta;
 mod notebooks;
 mod sync;
@@ -17,6 +18,8 @@ use tauri::{AppHandle, Manager, State};
 use textfile::{Encoding, TextFormat};
 
 struct AppState {
+    /// Texto das notas em memória, para a busca global e o glossário.
+    index: Mutex<index::Index>,
     config: Mutex<Config>,
     config_file: PathBuf,
     state_dir: PathBuf,
@@ -35,6 +38,9 @@ struct AppState {
 
 /// Arquivos mudaram por ação do usuário: no PC acorda os celulares; no celular agenda a sincronização.
 fn touched(app: &AppHandle) {
+    if let Ok(mut idx) = app.state::<AppState>().index.lock() {
+        idx.invalidate();
+    }
     #[cfg(desktop)]
     {
         app.state::<AppState>().changes.bump();
@@ -229,35 +235,82 @@ fn set_icon(app: AppHandle, state: State<AppState>, path: PathBuf, icon: Option<
     Ok(())
 }
 
-#[tauri::command]
-fn rename_notebook(state: State<AppState>, id: String, name: String) -> CmdResult<()> {
+/// Renomeia o caderno e a pasta dele no disco (nome único na mesma pasta-mãe).
+fn rename_notebook_inner(state: &AppState, id: &str, name: &str) -> CmdResult<NotebookInfo> {
     let name = name.trim().to_string();
     if name.is_empty() {
         return Err("Nome inválido.".into());
     }
     state.with_config(
         |cfg| {
+            let old = cfg.notebook(id)?.path.clone();
+            let mut target = old.clone();
+            let stem = notebooks::sanitize_name(&name);
+            // Rápidas mantém o nome da pasta; os demais seguem o nome do caderno.
+            if id != notebooks::QUICK_NOTEBOOK_ID && !stem.is_empty() {
+                let current = old.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                if current != stem {
+                    if let Some(parent) = old.parent() {
+                        target = notebooks::unique_path(parent, &stem, "", Some(&old));
+                    }
+                }
+            }
+            if !notebooks::same_path(&old, &target) {
+                check_not_nested(cfg, &target, Some(id))?;
+                notebooks::move_path(&old, &target)?;
+            }
             let nb = cfg.notebooks.iter_mut().find(|n| n.id == id).ok_or("Caderno não encontrado.")?;
             nb.name = name;
-            Ok(())
+            nb.path = target;
+            Ok(info(nb))
         },
         true,
     )
 }
 
-/// Tira o caderno da lista. Os arquivos continuam na pasta.
 #[tauri::command]
-fn remove_notebook(state: State<AppState>, id: String) -> CmdResult<()> {
+fn rename_notebook(app: AppHandle, state: State<AppState>, id: String, name: String) -> CmdResult<NotebookInfo> {
+    let out = rename_notebook_inner(&state, &id, &name)?;
+    touched(&app);
+    Ok(out)
+}
+
+/// Descarta uma pasta de caderno sem apagar de vez: Lixeira do Windows no PC; no celular (e se a
+/// Lixeira falhar) vai para `Lixeira` na pasta de dados do app.
+fn discard_dir(state_dir: &Path, path: &Path) {
+    if !path.is_dir() {
+        return;
+    }
+    #[cfg(desktop)]
+    if trash::delete(path).is_ok() {
+        return;
+    }
+    let bin = state_dir.join("Lixeira");
+    if fs::create_dir_all(&bin).is_ok() {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Caderno".into());
+        let _ = notebooks::move_path(path, &notebooks::unique_path(&bin, &name, "", None));
+    }
+}
+
+/// Tira o caderno da lista; com `delete_files`, a pasta também sai do disco (para a Lixeira).
+#[tauri::command]
+fn remove_notebook(app: AppHandle, state: State<AppState>, id: String, delete_files: Option<bool>) -> CmdResult<()> {
     if id == notebooks::QUICK_NOTEBOOK_ID {
         return Err("O caderno Rápidas não pode ser removido.".into());
     }
-    state.with_config(
+    let path = state.with_config(
         |cfg| {
+            let path = cfg.notebook(&id)?.path.clone();
             cfg.notebooks.retain(|n| n.id != id);
-            Ok(())
+            Ok(path)
         },
         true,
-    )
+    )?;
+    if delete_files.unwrap_or(false) {
+        discard_dir(&state.state_dir, &path);
+    }
+    touched(&app);
+    Ok(())
 }
 #[tauri::command]
 fn list_tree(state: State<AppState>, id: String) -> CmdResult<Vec<TreeEntry>> {
@@ -266,6 +319,75 @@ fn list_tree(state: State<AppState>, id: String) -> CmdResult<Vec<TreeEntry>> {
     let mut tree = notebooks::list_tree(&root).map_err(|e| format!("Não foi possível listar o caderno: {e}"))?;
     meta::annotate(&mut tree, &root, &meta::load(&root));
     Ok(tree)
+}
+
+// ---- Busca e glossário ----
+
+fn notebook_refs(state: &AppState, only: Option<&str>) -> CmdResult<Vec<index::NotebookRef>> {
+    state.with_config(
+        |cfg| {
+            Ok(cfg
+                .notebooks
+                .iter()
+                .filter(|n| only.is_none_or(|id| id == n.id))
+                .map(|n| index::NotebookRef { id: n.id.clone(), name: n.name.clone(), path: n.path.clone() })
+                .collect())
+        },
+        false,
+    )
+}
+
+/// Busca o texto (sem acento nem maiúsculas) nas notas de todos os cadernos, ou só de um.
+#[tauri::command]
+fn search_notes(state: State<AppState>, query: String, notebook: Option<String>) -> CmdResult<Vec<index::Hit>> {
+    let refs = notebook_refs(&state, notebook.as_deref())?;
+    let mut idx = state.index.lock().map_err(|_| "Estado interno inválido.".to_string())?;
+    Ok(idx.search(&refs, &query, None))
+}
+
+/// Termos definidos nas notas (`**Termo**: definição` ou `Termo:: definição`), em ordem alfabética.
+#[tauri::command]
+fn list_terms(state: State<AppState>) -> CmdResult<Vec<index::Term>> {
+    let refs = notebook_refs(&state, None)?;
+    let mut idx = state.index.lock().map_err(|_| "Estado interno inválido.".to_string())?;
+    Ok(idx.terms(&refs))
+}
+
+const GLOSSARY_FILE: &str = "Glossário.md";
+
+/// Acrescenta `**termo**: definição` ao `Glossário.md` do caderno (criado se não existir).
+#[tauri::command]
+fn define_term(app: AppHandle, state: State<AppState>, notebook: String, term: String, definition: String) -> CmdResult<PathBuf> {
+    let one_line = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let (term, definition) = (one_line(&term), one_line(&definition));
+    if term.is_empty() || definition.is_empty() {
+        return Err("Informe o termo e a definição.".into());
+    }
+    if term.contains("**") || term.chars().count() > 80 {
+        return Err("Termo inválido (até 80 caracteres, sem **).".into());
+    }
+    let root = state.with_config(|c| Ok(c.notebook(&notebook)?.path.clone()), false)?;
+    fs::create_dir_all(&root).map_err(|e| format!("Pasta do caderno inacessível: {e}"))?;
+    let path = root.join(GLOSSARY_FILE);
+    let line = format!("**{term}**: {definition}");
+    let (text, format) = match textfile::read_file(&path) {
+        Ok(d) => {
+            let mut t = d.text;
+            if !t.is_empty() && !t.ends_with('\n') {
+                t.push('\n');
+            }
+            t.push_str(&line);
+            t.push('\n');
+            (t, d.format)
+        }
+        Err(_) => (
+            format!("# Glossário\n\n{line}\n"),
+            TextFormat { encoding: Encoding::Utf8, bom: false, eol: textfile::Eol::Lf },
+        ),
+    };
+    textfile::write_file(&path, &text, &format)?;
+    touched(&app);
+    Ok(path)
 }
 
 // ---- Notas e pastas ----
@@ -523,6 +645,7 @@ fn init_state(app: &AppHandle) -> Result<AppState, Box<dyn std::error::Error>> {
         rebase_portable(&mut cfg, &root);
     }
     let state = AppState {
+        index: Mutex::new(index::Index::default()),
         config: Mutex::new(Config::default()),
         config_file,
         client: sync_app::ClientRuntime::load(config_dir.join("sync-client.json")),
@@ -612,6 +735,9 @@ pub fn run() {
             set_root,
             set_icon,
             list_tree,
+            search_notes,
+            list_terms,
+            define_term,
             create_note,
             create_folder,
             rename_entry,

@@ -1,6 +1,9 @@
 // Controlador do NOTEx: cadernos, documentos abertos, grade de painéis, sessão e atalhos.
 
 import { bindPinch, bindViewport } from './ui/viewport'
+import { showNovidades, showNovidadesIfNew } from './ui/novidades'
+import { SearchPanel } from './ui/search-panel'
+import type { RevealTarget } from './editors/reveal'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
@@ -64,6 +67,7 @@ export class App {
 
   private readonly theme: Theme
   private readonly sidebar: Sidebar
+  private readonly search: SearchPanel
   private readonly workspace: Workspace
   private readonly toolbar: Toolbar
   private readonly el = {
@@ -93,7 +97,8 @@ export class App {
       toggleTheme: () => {
         this.theme.toggle()
         this.scheduleSession()
-      }
+      },
+      defineTerm: () => void this.defineTerm()
     })
     this.sidebar = new Sidebar(this.el.sidebar, hasDesktopFs, {
       open: (path, opts) => {
@@ -114,7 +119,16 @@ export class App {
       chooseIcon: (path, current, isNotebook) => void this.chooseIcon(path, current, isNotebook),
       convert: (path) => void this.convertNote(path),
       reveal: (path) => void revealItemInDir(path).catch((e) => toast(errorMessage(e), 'error')),
-      expandedChanged: () => this.scheduleSession()
+      expandedChanged: () => this.scheduleSession(),
+      openSearch: (tab) => this.openSearch(tab)
+    })
+    this.search = new SearchPanel(this.el.sidebar, {
+      openAt: (path, target) => void this.openAt(path, target),
+      notebooks: () => this.notebooks,
+      activeNotebookId: () => this.activeNotebook()?.id ?? null,
+      selection: () => this.selectedText(),
+      defineTerm: () => void this.defineTerm(),
+      close: () => this.closeSearch()
     })
     this.workspace = new Workspace(this.el.workspace, {
       activate: (g, tab) => this.activate(g, tab),
@@ -187,7 +201,11 @@ export class App {
     bindViewport()
     bindPinch(this.el.workspace, (d) => this.zoomStep(d))
     const v = document.getElementById('st-version')
-    if (v) v.textContent = `v${__APP_VERSION__}`
+    if (v) {
+      v.textContent = `v${__APP_VERSION__}`
+      v.addEventListener('click', () => void showNovidades(__APP_VERSION__))
+    }
+    showNovidadesIfNew(__APP_VERSION__)
     document.addEventListener('keydown', (e) => this.onKey(e), true)
     window.addEventListener('focus', () => void this.checkExternalChanges())
     // Ao fechar: grava tudo antes (o Tauri espera o handler terminar).
@@ -208,6 +226,7 @@ export class App {
 
   /** A sincronização gravou ou apagou arquivos: atualiza abas abertas e a barra lateral. */
   private async onFilesChanged(ev: FilesChanged): Promise<void> {
+    this.search.refresh()
     for (const path of ev.removed) {
       const doc = this.findDoc(path)
       // Com edição não salva, mantém aberta: ao salvar, a nota volta a existir.
@@ -661,27 +680,30 @@ export class App {
     const name = await prompt('Nome do caderno', nb.name, 'Renomear')
     if (name === null) return
     try {
-      await api.renameNotebook(nb.id, name)
-      nb.name = name
-      this.sidebar.setData(this.notebooks, this.trees)
+      await this.settle(nb.path)
+      const renamed = await api.renameNotebook(nb.id, name)
+      if (!samePath(renamed.path, nb.path)) this.applyMove(nb.path, renamed.path)
+      nb.name = renamed.name
+      nb.path = renamed.path
+      await this.refreshTrees()
+      this.scheduleSession()
     } catch (e) {
       toast(errorMessage(e), 'error')
     }
   }
 
   private async removeNotebook(nb: Notebook): Promise<void> {
-    const ok = await confirm(
-      'Remover caderno da lista',
-      `"${nb.name}" sai da barra lateral. Os arquivos continuam em:\n${nb.path}`,
-      'Remover'
-    )
-    if (!ok) return
+    const pick = await choose(`Excluir o caderno "${nb.name}"?`, 'Ele também será removido dos outros aparelhos sincronizados.', [
+      { label: 'Só tirar da lista', detail: `Os arquivos continuam em: ${nb.path}` },
+      { label: 'Apagar a pasta também', detail: hasDesktopFs ? 'A pasta vai para a Lixeira do Windows.' : 'A pasta vai para a lixeira do app.' }
+    ])
+    if (pick === null) return
     try {
       await this.settle(nb.path)
       for (const doc of [...this.docs.values()]) {
         if (isWithin(nb.path, doc.path)) await this.closeTab(doc.path)
       }
-      await api.removeNotebook(nb.id)
+      await api.removeNotebook(nb.id, pick === 1)
       this.notebooks = this.notebooks.filter((n) => n.id !== nb.id)
       await this.refreshTrees()
     } catch (e) {
@@ -892,6 +914,54 @@ export class App {
     this.scheduleSession()
   }
 
+  /** Texto selecionado na nota ativa, numa linha só (vazio se a seleção for grande demais). */
+  private selectedText(): string {
+    const t = (window.getSelection()?.toString() ?? '').replace(/\s+/g, ' ').trim()
+    return t.length <= 80 ? t : ''
+  }
+
+  private activeNotebook(): Notebook | undefined {
+    const doc = this.activeDoc()
+    return (doc && this.notebooks.find((n) => isWithin(n.path, doc.path))) ?? this.quickNotebook()
+  }
+
+  private openSearch(tab: 'search' | 'glossary'): void {
+    const prefill = tab === 'search' ? this.selectedText() : ''
+    this.setSidebar(true)
+    this.el.sidebar.classList.add('searching')
+    this.search.show(tab, prefill)
+  }
+
+  private closeSearch(): void {
+    this.el.sidebar.classList.remove('searching')
+  }
+
+  /** Abre a nota e leva o editor até o trecho encontrado. */
+  private async openAt(path: string, target: RevealTarget): Promise<void> {
+    if (isMobile) this.setSidebar(false)
+    const doc = await this.openPath(path)
+    doc?.editor.reveal(target)
+  }
+
+  /** Pede termo e definição e grava no Glossário.md do caderno da nota ativa. */
+  private async defineTerm(): Promise<void> {
+    const nb = this.activeNotebook()
+    if (!nb) return
+    const term = await prompt('Termo a definir', this.selectedText(), 'Continuar')
+    if (!term?.trim()) return
+    const definition = await prompt(`Definição de "${term.trim()}"`, '', 'Salvar')
+    if (!definition?.trim()) return
+    try {
+      const path = await api.defineTerm(nb.id, term, definition)
+      await this.refreshTrees()
+      await this.findDoc(path)?.reloadIfChanged().catch(() => undefined)
+      this.search.refresh()
+      toast(`Termo salvo em ${nb.name} › Glossário.`)
+    } catch (e) {
+      toast(errorMessage(e), 'error')
+    }
+  }
+
   private toggleSidebar(): void {
     this.setSidebar(!this.sidebarVisible)
   }
@@ -993,6 +1063,9 @@ export class App {
       return run(() => this.focusGroup(key === 'arrowright' ? 1 : -1))
     if (ctrl && (e.code === 'Backslash' || e.code === 'IntlBackslash' || key === '\\'))
       return run(() => this.splitActive(e.shiftKey ? 'bottom' : 'right'))
+    if (ctrl && e.shiftKey && key === 'f') return run(() => this.openSearch('search'))
+    if (ctrl && e.shiftKey && key === 'g') return run(() => this.openSearch('glossary'))
+    if (ctrl && e.shiftKey && key === 'd') return run(() => void this.defineTerm())
     if (ctrl && e.shiftKey && key === 'e') return run(() => this.toggleSidebar())
     if (ctrl && e.shiftKey && key === 't') return run(() => (this.theme.toggle(), this.scheduleSession()))
     if (ctrl && e.shiftKey && key === 'm') return run(() => this.toggleRaw())
